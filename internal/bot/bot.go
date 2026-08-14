@@ -38,6 +38,7 @@ type Telegram interface {
 	SendEphemeralMessage(context.Context, int64, int64, int64, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
 	SendReply(context.Context, int64, int64, int, string) (telegram.Message, error)
 	SendMessageDraft(context.Context, int64, int, string) error
+	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string) error
 	EditMessageText(context.Context, int64, int64, string, *telegram.InlineKeyboardMarkup) error
 	AnswerCallbackQuery(context.Context, string, string) error
 	SendChatAction(context.Context, int64, string) error
@@ -82,7 +83,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) error {
 	return b.tg.SetMyCommandsForScope(ctx, []telegram.BotCommand{
 		{Command: "start", Description: "Open VoiceToText privately", IsEphemeral: true},
 		{Command: "v", Description: "Transcribe for everyone"},
-		{Command: "vp", Description: "Transcribe just for you"},
+		{Command: "vp", Description: "Transcribe just for you", IsEphemeral: true},
 	}, &telegram.BotCommandScope{Type: "all_group_chats"})
 }
 
@@ -243,6 +244,9 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if act.Media == nil || act.Media.FileID == "" {
 		return nil
 	}
+	// /vp is ephemeral: claim the 15s reply window with a placeholder, then
+	// edit after STT. A late sendMessage(receiver_user_id) is not enough.
+	placeholderID, placeholderOK := b.openEphemeralPlaceholder(ctx, act, lang)
 	_ = b.tg.SendChatAction(ctx, act.ChatID, "typing")
 
 	jobID, status, err := b.store.CreateJob(ctx, act.UpdateID, act.MessageID, act.UserID, act.ChatID, act.Media.Kind, act.Media.FileID)
@@ -260,7 +264,7 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 			Text: cached.Transcript, Language: cached.Language, Confidence: cached.Confidence,
 			Duration: cached.Duration, RequestID: cached.RequestID, WordCount: cached.WordCount,
 		}
-		if err := b.deliver(ctx, act, lang, res); err != nil {
+		if err := b.deliver(ctx, act, lang, res, placeholderID, placeholderOK); err != nil {
 			return err
 		}
 		_ = b.store.FinishJob(ctx, jobID, "sent", "", true)
@@ -271,13 +275,13 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if err != nil {
 		b.log.Error("getFile failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "error", err)
 		_ = b.store.FinishJob(ctx, jobID, "failed", "get_file", false)
-		return b.deliverError(ctx, act, lang)
+		return b.deliverError(ctx, act, lang, placeholderID, placeholderOK)
 	}
 	audio, err := b.tg.DownloadFile(ctx, file.FilePath)
 	if err != nil {
 		b.log.Error("download failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "error", err)
 		_ = b.store.FinishJob(ctx, jobID, "failed", "download", false)
-		return b.deliverError(ctx, act, lang)
+		return b.deliverError(ctx, act, lang, placeholderID, placeholderOK)
 	}
 	ctype := act.Media.MimeType
 	if ctype == "" && act.Media.Kind == "video_note" {
@@ -294,17 +298,17 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if err != nil {
 		b.log.Error("deepgram failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "error", err)
 		_ = b.store.FinishJob(ctx, jobID, "failed", "deepgram", false)
-		return b.deliverError(ctx, act, lang)
+		return b.deliverError(ctx, act, lang, placeholderID, placeholderOK)
 	}
 	if strings.TrimSpace(res.Text) == "" {
 		b.log.Info("empty transcript", "file_id", act.Media.FileID, "update_id", act.UpdateID)
 		_ = b.store.FinishJob(ctx, jobID, "empty", "empty", false)
-		return b.deliver(ctx, act, lang, res)
+		return b.deliver(ctx, act, lang, res, placeholderID, placeholderOK)
 	}
 	if err := b.store.SaveTranscript(ctx, act.Media.FileID, act.Media.FileUniqueID, act.Media.Kind, res); err != nil {
 		return err
 	}
-	if err := b.deliver(ctx, act, lang, res); err != nil {
+	if err := b.deliver(ctx, act, lang, res, placeholderID, placeholderOK); err != nil {
 		return err
 	}
 	if err := b.store.FinishJob(ctx, jobID, "sent", "", false); err != nil {
@@ -313,18 +317,59 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	return b.store.RecordSuccess(ctx, act.UserID, act.Media.Kind, res)
 }
 
-func (b *Bot) deliver(ctx context.Context, act decide.Action, lang string, res deepgram.Result) error {
+func (b *Bot) openEphemeralPlaceholder(ctx context.Context, act decide.Action, lang string) (int64, bool) {
+	if act.Visibility != decide.Private || act.Chat.Type == "private" || act.EphemeralMessageID == 0 {
+		return 0, false
+	}
+	replyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	msg, err := b.tg.SendEphemeralMessage(replyCtx, act.ChatID, act.UserID, act.EphemeralMessageID, transcript.WorkingText(lang), nil)
+	cancel()
+	if err != nil {
+		b.log.Warn("ephemeral placeholder failed; will DM the result", "error", err)
+		return 0, false
+	}
+	if msg.EphemeralMessageID != 0 {
+		return msg.EphemeralMessageID, true
+	}
+	if msg.MessageID != 0 {
+		return msg.MessageID, true
+	}
+	return act.EphemeralMessageID, true
+}
+
+func (b *Bot) finishEphemeral(ctx context.Context, act decide.Action, placeholderID int64, text string) error {
+	if err := b.tg.EditEphemeralMessageText(ctx, act.ChatID, act.UserID, placeholderID, text); err == nil {
+		return nil
+	} else {
+		b.log.Warn("edit ephemeral failed; falling back to DM", "error", err)
+	}
+	_, err := b.tg.SendMessage(ctx, act.UserID, text, nil)
+	return err
+}
+
+func (b *Bot) deliver(ctx context.Context, act decide.Action, lang string, res deepgram.Result, placeholderID int64, placeholderOK bool) error {
 	text := transcript.Format(res, lang)
+	if placeholderOK {
+		return b.finishEphemeral(ctx, act, placeholderID, text)
+	}
 	if act.Visibility == decide.Private && act.Chat.Type != "private" {
-		_, err := b.tg.SendPrivateMessage(ctx, act.ChatID, act.UserID, text, act.ThreadID)
+		_, err := b.tg.SendMessage(ctx, act.UserID, text, nil)
 		return err
 	}
 	_, err := b.tg.SendReply(ctx, act.ChatID, act.ReplyToID, act.ThreadID, text)
 	return err
 }
 
-func (b *Bot) deliverError(ctx context.Context, act decide.Action, lang string) error {
-	_, err := b.tg.SendReply(ctx, act.ChatID, act.ReplyToID, act.ThreadID, transcript.ErrorText(lang))
+func (b *Bot) deliverError(ctx context.Context, act decide.Action, lang string, placeholderID int64, placeholderOK bool) error {
+	text := transcript.ErrorText(lang)
+	if placeholderOK {
+		return b.finishEphemeral(ctx, act, placeholderID, text)
+	}
+	if act.Visibility == decide.Private && act.Chat.Type != "private" {
+		_, err := b.tg.SendMessage(ctx, act.UserID, text, nil)
+		return err
+	}
+	_, err := b.tg.SendReply(ctx, act.ChatID, act.ReplyToID, act.ThreadID, text)
 	return err
 }
 

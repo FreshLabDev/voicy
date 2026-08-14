@@ -69,7 +69,7 @@ func TestDecideGroupVReplyPublic(t *testing.T) {
 	}
 }
 
-func TestDecideGroupVPReplyPrivate(t *testing.T) {
+func TestDecideGroupVPWithoutEphemeralIsSilent(t *testing.T) {
 	upd := mustUpdate(t, `{
 	  "update_id": 4,
 	  "message": {
@@ -83,8 +83,28 @@ func TestDecideGroupVPReplyPrivate(t *testing.T) {
 	    }
 	  }
 	}`)
+	if Decide(upd, "voicetextbot").Kind != Ignore {
+		t.Fatal("public group /vp must stay quiet")
+	}
+}
+
+func TestDecideGroupVPEphemeralPrivate(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 41,
+	  "message": {
+	    "message_id": 13,
+	    "ephemeral_message_id": 88,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": -100, "type": "supergroup"},
+	    "text": "/vp",
+	    "reply_to_message": {
+	      "message_id": 11,
+	      "video_note": {"file_id": "CIRCLE1", "file_unique_id": "U2", "duration": 2, "length": 240}
+	    }
+	  }
+	}`)
 	act := Decide(upd, "voicetextbot")
-	if act.Kind != Transcribe || act.Visibility != Private || act.Media == nil || act.Media.Kind != "video_note" {
+	if act.Kind != Transcribe || act.Visibility != Private || !act.Ephemeral || act.EphemeralMessageID != 88 {
 		t.Fatalf("%+v", act)
 	}
 }

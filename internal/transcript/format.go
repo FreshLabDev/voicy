@@ -53,6 +53,13 @@ func HelpText(lang string) string {
 	return "<b>Help</b>\n• In DM: send a voice or a video circle.\n• In a group: reply <code>/v</code> for everyone, <code>/vp</code> for you only.\n• The same file is served from cache."
 }
 
+func WorkingText(lang string) string {
+	if lang == "ru" {
+		return "Расшифровываю…"
+	}
+	return "Transcribing…"
+}
+
 func NudgeText(lang string) string {
 	if lang == "ru" {
 		return "Пришли голосовое или кружочек, либо открой /start."

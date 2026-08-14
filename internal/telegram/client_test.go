@@ -55,6 +55,27 @@ func TestSendPrivateMessageSetsReceiver(t *testing.T) {
 	}
 }
 
+func TestEditEphemeralMessageTextPostsIDs(t *testing.T) {
+	var gotPath, gotBody string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	if err := c.EditEphemeralMessageText(context.Background(), -100, 9, 77, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(gotPath, "/editEphemeralMessageText") {
+		t.Fatalf("path = %q", gotPath)
+	}
+	for _, want := range []string{`"chat_id":-100`, `"receiver_user_id":9`, `"ephemeral_message_id":77`, `"parse_mode":"HTML"`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("missing %s in %s", want, gotBody)
+		}
+	}
+}
+
 func TestGetFileAndDownload(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {

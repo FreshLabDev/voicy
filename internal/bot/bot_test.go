@@ -14,6 +14,7 @@ import (
 	"github.com/FreshLabDev/voicetotext/internal/deepgram"
 	"github.com/FreshLabDev/voicetotext/internal/stats"
 	"github.com/FreshLabDev/voicetotext/internal/telegram"
+	"github.com/FreshLabDev/voicetotext/internal/transcript"
 )
 
 type fakeStore struct {
@@ -71,31 +72,46 @@ func (f *fakeStore) AdvanceOffset(_ context.Context, off int64) error {
 }
 
 type fakeTG struct {
-	sent       []string
-	private    []string
-	drafts     []string
-	downloaded int
-	gotFile    int
+	sent            []string
+	private         []string
+	ephemeral       []string
+	ephemeralEdits  []string
+	drafts          []string
+	groupCommands   []telegram.BotCommand
+	downloaded      int
+	gotFile         int
+	calls           []string
 }
 
 func (f *fakeTG) GetUpdates(context.Context, int64, int) ([]telegram.Update, error) { return nil, nil }
 func (f *fakeTG) GetMe(context.Context) (telegram.Me, error) {
 	return telegram.Me{Username: "voicetextbot"}, nil
 }
-func (f *fakeTG) SetMyCommandsForScope(context.Context, []telegram.BotCommand, *telegram.BotCommandScope) error {
+func (f *fakeTG) SetMyCommandsForScope(_ context.Context, commands []telegram.BotCommand, scope *telegram.BotCommandScope) error {
+	if scope != nil && scope.Type == "all_group_chats" {
+		f.groupCommands = append([]telegram.BotCommand{}, commands...)
+	}
 	return nil
 }
 func (f *fakeTG) SendMessage(_ context.Context, _ int64, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+	f.calls = append(f.calls, "sendMessage")
 	f.sent = append(f.sent, text)
 	return telegram.Message{}, nil
 }
 func (f *fakeTG) SendPrivateMessage(_ context.Context, _, _ int64, text string, _ int) (telegram.Message, error) {
+	f.calls = append(f.calls, "sendPrivate")
 	f.private = append(f.private, text)
 	return telegram.Message{}, nil
 }
 func (f *fakeTG) SendEphemeralMessage(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
-	f.sent = append(f.sent, text)
-	return telegram.Message{}, nil
+	f.calls = append(f.calls, "sendEphemeral")
+	f.ephemeral = append(f.ephemeral, text)
+	return telegram.Message{MessageID: 501, EphemeralMessageID: 501}, nil
+}
+func (f *fakeTG) EditEphemeralMessageText(_ context.Context, _, _, _ int64, text string) error {
+	f.calls = append(f.calls, "editEphemeral")
+	f.ephemeralEdits = append(f.ephemeralEdits, text)
+	return nil
 }
 func (f *fakeTG) SendReply(_ context.Context, _, _ int64, _ int, text string) (telegram.Message, error) {
 	f.sent = append(f.sent, text)
@@ -120,13 +136,18 @@ func (f *fakeTG) DownloadFile(context.Context, string) ([]byte, error) {
 }
 
 type countingSTT struct {
-	calls int
-	res   deepgram.Result
-	err   error
+	calls          int
+	res            deepgram.Result
+	err            error
+	tg             *fakeTG
+	sawPlaceholder bool
 }
 
 func (c *countingSTT) Transcribe(_ context.Context, _ []byte, _ string, onPartial func(string)) (deepgram.Result, error) {
 	c.calls++
+	if c.tg != nil {
+		c.sawPlaceholder = len(c.tg.ephemeral) > 0
+	}
 	if onPartial != nil && c.res.Text != "" {
 		onPartial(c.res.Text)
 	}
@@ -208,16 +229,34 @@ func TestHandleGroupVUsesPublicSend(t *testing.T) {
 	}
 }
 
-func TestHandleGroupVPUsesPrivateSend(t *testing.T) {
+func TestRegisterGroupVPIsEphemeral(t *testing.T) {
+	tg := &fakeTG{}
+	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	if err := b.RegisterCommands(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var vp *telegram.BotCommand
+	for i := range tg.groupCommands {
+		if tg.groupCommands[i].Command == "vp" {
+			vp = &tg.groupCommands[i]
+		}
+	}
+	if vp == nil || !vp.IsEphemeral {
+		t.Fatalf("group /vp must be ephemeral, got %#v", tg.groupCommands)
+	}
+}
+
+func TestHandleGroupVPPlaceholderThenEdit(t *testing.T) {
 	st := &fakeStore{}
 	tg := &fakeTG{}
-	stt := &countingSTT{res: deepgram.Result{Text: "secret"}}
+	stt := &countingSTT{res: deepgram.Result{Text: "secret"}, tg: tg}
 	b := New(st, tg, stt, logger())
 	b.self = "voicetextbot"
 	upd := parseUpd(t, `{
 	  "update_id": 12,
 	  "message": {
 	    "message_id": 3,
+	    "ephemeral_message_id": 88,
 	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
 	    "chat": {"id": -100, "type": "supergroup"},
 	    "text": "/vp",
@@ -227,8 +266,32 @@ func TestHandleGroupVPUsesPrivateSend(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.private) != 1 || !contains(tg.private[0], "secret") {
-		t.Fatalf("private = %v public = %v", tg.private, tg.sent)
+	if stt.calls != 1 {
+		t.Fatalf("stt calls = %d", stt.calls)
+	}
+	if !stt.sawPlaceholder {
+		t.Fatal("ephemeral placeholder must be sent before STT")
+	}
+	if len(tg.ephemeral) != 1 || tg.ephemeral[0] != transcript.WorkingText("en") {
+		t.Fatalf("placeholder = %v", tg.ephemeral)
+	}
+	if len(tg.ephemeralEdits) != 1 || !contains(tg.ephemeralEdits[0], "secret") {
+		t.Fatalf("edits = %v", tg.ephemeralEdits)
+	}
+	if len(tg.private) != 0 {
+		t.Fatalf("must not use receiver-only sendMessage: %v", tg.private)
+	}
+	if len(tg.calls) < 1 || tg.calls[0] != "sendEphemeral" {
+		t.Fatalf("placeholder must be first telegram write, calls=%v", tg.calls)
+	}
+	var sawEdit bool
+	for _, c := range tg.calls {
+		if c == "editEphemeral" {
+			sawEdit = true
+		}
+	}
+	if !sawEdit {
+		t.Fatalf("missing editEphemeral in %v", tg.calls)
 	}
 }
 

@@ -182,6 +182,26 @@ func (c *Client) SendMessageDraft(ctx context.Context, chatID int64, draftID int
 	return nil
 }
 
+func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string) error {
+	req := map[string]any{
+		"chat_id":              chatID,
+		"receiver_user_id":     receiverUserID,
+		"ephemeral_message_id": ephemeralMessageID,
+		"text":                 text,
+		"parse_mode":           "HTML",
+	}
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "editEphemeralMessageText", req, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram editEphemeralMessageText returned ok=false")
+	}
+	return nil
+}
+
 func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, text string, markup *InlineKeyboardMarkup) error {
 	req := map[string]any{
 		"chat_id":                  chatID,

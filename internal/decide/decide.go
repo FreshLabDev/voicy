@@ -112,25 +112,16 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 			return withKind(base, Stats)
 		case "help", "about":
 			return withKind(base, Help)
-		case "v", "vp":
-			vis := Public
-			if cmd == "vp" {
-				vis = Private
-			}
-			media := mediaFrom(msg.ReplyToMessage)
-			if media == nil {
-				if private {
-					return withKind(base, Nudge)
-				}
+		case "v":
+			return transcribeCommand(base, msg, private, Public)
+		case "vp":
+			// Group /vp is registered ephemeral. A non-ephemeral public /vp
+			// must stay quiet — receiver_user_id alone is not enough for a
+			// non-admin bot (Bot API 10.2).
+			if !private && msg.EphemeralMessageID == 0 {
 				return withKind(base, Ignore)
 			}
-			act := withKind(base, Transcribe)
-			act.Visibility = vis
-			act.Media = media
-			if msg.ReplyToMessage != nil {
-				act.ReplyToID = msg.ReplyToMessage.MessageID
-			}
-			return act
+			return transcribeCommand(base, msg, private, Private)
 		default:
 			if private {
 				return withKind(base, Nudge)
@@ -152,6 +143,23 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 		return withKind(base, Nudge)
 	}
 	return withKind(base, Ignore)
+}
+
+func transcribeCommand(base Action, msg *telegram.Message, private bool, vis Visibility) Action {
+	media := mediaFrom(msg.ReplyToMessage)
+	if media == nil {
+		if private {
+			return withKind(base, Nudge)
+		}
+		return withKind(base, Ignore)
+	}
+	act := withKind(base, Transcribe)
+	act.Visibility = vis
+	act.Media = media
+	if msg.ReplyToMessage != nil {
+		act.ReplyToID = msg.ReplyToMessage.MessageID
+	}
+	return act
 }
 
 func mediaFrom(m *telegram.Message) *Media {
