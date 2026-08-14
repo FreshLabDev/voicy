@@ -30,6 +30,9 @@ type prererecordedResponse struct {
 				Transcript string  `json:"transcript"`
 				Confidence float64 `json:"confidence"`
 				Words      []any   `json:"words"`
+				Paragraphs struct {
+					Transcript string `json:"transcript"`
+				} `json:"paragraphs"`
 			} `json:"alternatives"`
 		} `json:"channels"`
 	} `json:"results"`
@@ -66,6 +69,9 @@ func ExtractPrerecorded(raw []byte) (Result, error) {
 	ch := body.Results.Channels[0]
 	alt := ch.Alternatives[0]
 	out.Text = strings.TrimSpace(alt.Transcript)
+	if p := strings.TrimSpace(alt.Paragraphs.Transcript); p != "" {
+		out.Text = p
+	}
 	out.Confidence = alt.Confidence
 	out.Language = ch.DetectedLanguage
 	out.WordCount = len(alt.Words)

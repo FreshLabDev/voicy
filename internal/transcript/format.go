@@ -2,56 +2,104 @@
 package transcript
 
 import (
-	"fmt"
 	"html"
+	"strconv"
 	"strings"
 
 	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/stats"
 )
 
 func Format(res deepgram.Result, lang string) string {
-	text := strings.TrimSpace(res.Text)
+	text := normalizeTranscript(res.Text)
 	if text == "" {
-		if lang == "ru" {
-			return "Не разобрал речь. Попробуй ещё раз чуть громче или короче."
-		}
-		return "I didn’t catch any speech. Try again a bit louder or shorter."
+		return EmptySpeechText(lang)
 	}
-	var b strings.Builder
-	b.WriteString("<blockquote>")
-	b.WriteString(html.EscapeString(text))
-	b.WriteString("</blockquote>")
-	var meta []string
-	if res.Language != "" {
-		meta = append(meta, html.EscapeString(res.Language))
-	}
-	if res.Duration > 0 {
-		meta = append(meta, fmt.Sprintf("%.0fs", res.Duration))
-	}
-	if res.Confidence > 0 {
-		meta = append(meta, fmt.Sprintf("%.0f%%", res.Confidence*100))
-	}
-	if len(meta) > 0 {
-		b.WriteString("\n<i>")
-		b.WriteString(strings.Join(meta, " · "))
-		b.WriteString("</i>")
-	}
-	return b.String()
+	return Quote(html.EscapeString(text))
 }
 
-func StartText(lang string) string {
-	if lang == "ru" {
-		return "<b>Voicy</b>\nПришли голосовое или кружочек — верну текстом.\nВ группе ответь <code>/v</code> (всем) или <code>/vp</code> (только тебе)."
+func Quote(inner string) string {
+	if strings.TrimSpace(inner) == "" {
+		return ""
 	}
-	return "<b>Voicy</b>\nSend a voice or a video circle — I’ll send the text back.\nIn a group, reply with <code>/v</code> (everyone) or <code>/vp</code> (just you)."
+	return "<blockquote>" + inner + "</blockquote>"
+}
+
+func Header(title, hint string) string {
+	s := "<b>" + title + "</b>"
+	if hint != "" {
+		s += "\n<i>" + hint + "</i>"
+	}
+	return s
+}
+
+func Panel(title, hint, body string) string {
+	s := Header(title, hint)
+	if body != "" {
+		s += "\n\n" + body
+	}
+	return s
+}
+
+func HomeText(lang string) string {
+	if lang == "ru" {
+		return Panel("Voicy", "Голос в текст", Quote(
+			"Пришли голосовое или кружочек — верну текстом.\n"+
+				"В группе ответь <code>/v</code> (всем) или <code>/vp</code> (только тебе).",
+		))
+	}
+	return Panel("Voicy", "Voice to text", Quote(
+		"Send a voice or a video circle — I’ll send the text back.\n"+
+			"In a group, reply with <code>/v</code> (everyone) or <code>/vp</code> (just you).",
+	))
 }
 
 func HelpText(lang string) string {
 	if lang == "ru" {
-		return "<b>Help</b>\n• В личке: просто кинь войс или кружочек.\n• В группе: реплай <code>/v</code> — всем, <code>/vp</code> — только тебе.\n• Повтор того же файла отдаётся из кэша."
+		return Panel("Справка", "Как пользоваться", Quote(
+			"• В личке: просто кинь войс или кружочек.\n"+
+				"• В группе: реплай <code>/v</code> — всем, <code>/vp</code> — только тебе.\n"+
+				"• Повтор того же файла отдаётся из кэша.",
+		))
 	}
-	return "<b>Help</b>\n• In DM: send a voice or a video circle.\n• In a group: reply <code>/v</code> for everyone, <code>/vp</code> for you only.\n• The same file is served from cache."
+	return Panel("Help", "How it works", Quote(
+		"• In DM: send a voice or a video circle.\n"+
+			"• In a group: reply <code>/v</code> for everyone, <code>/vp</code> for you only.\n"+
+			"• The same file is served from cache.",
+	))
 }
+
+func StatsText(lang string, s stats.Snapshot) string {
+	if s.Transcriptions == 0 {
+		if lang == "ru" {
+			return Panel("Статистика", "Только успешные расшифровки",
+				"Пока нет расшифровок. Пришли голосовое или кружочек.")
+		}
+		return Panel("Stats", "Successful transcripts only",
+			"No transcripts yet. Send a voice or a video circle.")
+	}
+	if lang == "ru" {
+		return Panel("Статистика", "Только успешные расшифровки", Quote(
+			"Расшифровок: "+itoa(s.Transcriptions)+"\n"+
+				"Голосовые / кружки: "+itoa(s.Voice)+" / "+itoa(s.VideoNotes)+"\n"+
+				"Минут: "+ftoa(s.DurationSec/60),
+		))
+	}
+	return Panel("Stats", "Successful transcripts only", Quote(
+		"Transcripts: "+itoa(s.Transcriptions)+"\n"+
+			"Voice / circles: "+itoa(s.Voice)+" / "+itoa(s.VideoNotes)+"\n"+
+			"Minutes: "+ftoa(s.DurationSec/60),
+	))
+}
+
+func EmptySpeechText(lang string) string {
+	if lang == "ru" {
+		return "Не разобрал речь. Попробуй ещё раз чуть громче или короче."
+	}
+	return "I didn’t catch any speech. Try again a bit louder or shorter."
+}
+
+func StartText(lang string) string { return HomeText(lang) }
 
 func WorkingText(lang string) string {
 	if lang == "ru" {
@@ -74,6 +122,41 @@ func ErrorText(lang string) string {
 	return "Something went wrong while trying to transcribe that. Please try again."
 }
 
+func NotYoursText(lang string) string {
+	if lang == "ru" {
+		return "Это не твоё меню."
+	}
+	return "This isn’t your menu."
+}
+
+func BtnStats(lang string) string {
+	if lang == "ru" {
+		return "Статистика"
+	}
+	return "Stats"
+}
+
+func BtnHelp(lang string) string {
+	if lang == "ru" {
+		return "Справка"
+	}
+	return "Help"
+}
+
+func BtnClose(lang string) string {
+	if lang == "ru" {
+		return "Закрыть"
+	}
+	return "Close"
+}
+
+func BtnBack(lang string) string {
+	if lang == "ru" {
+		return "Назад"
+	}
+	return "Back"
+}
+
 func LangOf(code string) string {
 	code = strings.ToLower(strings.TrimSpace(code))
 	if i := strings.IndexByte(code, '-'); i > 0 {
@@ -83,4 +166,27 @@ func LangOf(code string) string {
 		return "ru"
 	}
 	return "en"
+}
+
+func normalizeTranscript(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = strings.TrimSpace(text)
+	for strings.Contains(text, "\n\n\n") {
+		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
+	}
+	return text
+}
+
+func itoa(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
+func ftoa(v float64) string {
+	if v < 0 {
+		v = 0
+	}
+	n := int64(v*10 + 0.5)
+	s := itoa(n/10) + "." + itoa(n%10)
+	return strings.TrimRight(strings.TrimRight(s, "0"), ".")
 }

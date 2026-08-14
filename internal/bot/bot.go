@@ -40,6 +40,7 @@ type Telegram interface {
 	SendMessageDraft(context.Context, int64, int, string) error
 	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string) error
 	EditMessageText(context.Context, int64, int64, string, *telegram.InlineKeyboardMarkup) error
+	DeleteMessage(context.Context, int64, int64) error
 	AnswerCallbackQuery(context.Context, string, string) error
 	SendChatAction(context.Context, int64, string) error
 	GetFile(context.Context, string) (telegram.File, error)
@@ -163,7 +164,8 @@ func (b *Bot) Handle(ctx context.Context, upd telegram.Update) error {
 	case decide.Start:
 		return b.handleStart(ctx, act, lang)
 	case decide.Help:
-		_, err := b.tg.SendMessage(ctx, act.ChatID, transcript.HelpText(lang), nil)
+		text, markup := helpPanel(lang, act.UserID)
+		_, err := b.tg.SendMessage(ctx, act.ChatID, text, markup)
 		return err
 	case decide.Stats:
 		return b.handleStats(ctx, act, lang)
@@ -180,7 +182,7 @@ func (b *Bot) Handle(ctx context.Context, upd telegram.Update) error {
 }
 
 func (b *Bot) handleStart(ctx context.Context, act decide.Action, lang string) error {
-	text, markup := homePanel(lang, b.self)
+	text, markup := homePanel(lang, act.UserID)
 	if act.Ephemeral {
 		_, err := b.tg.SendEphemeralMessage(ctx, act.ChatID, act.UserID, act.EphemeralMessageID, text, markup)
 		return err
@@ -189,52 +191,43 @@ func (b *Bot) handleStart(ctx context.Context, act decide.Action, lang string) e
 	return err
 }
 
-func homePanel(lang, self string) (string, *telegram.InlineKeyboardMarkup) {
-	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
-		{{Text: "Stats", CallbackData: "m:stats", Style: telegram.StylePrimary}, {Text: "Help", CallbackData: "m:help"}},
-		{{Text: "Close", CallbackData: "m:close", Style: telegram.StyleDanger}},
-	}}
-	_ = self
-	return transcript.StartText(lang), kb
-}
-
 func (b *Bot) handleStats(ctx context.Context, act decide.Action, lang string) error {
 	snap, err := b.store.UserStats(ctx, act.UserID)
 	if err != nil {
 		return err
 	}
-	_, err = b.tg.SendMessage(ctx, act.ChatID, renderStats(lang, snap), nil)
+	text, markup := statsPanel(lang, act.UserID, snap)
+	_, err = b.tg.SendMessage(ctx, act.ChatID, text, markup)
 	return err
 }
 
-func renderStats(lang string, s stats.Snapshot) string {
-	if lang == "ru" {
-		return "<b>Статистика</b>\n" +
-			"Расшифровок: " + itoa(s.Transcriptions) + "\n" +
-			"Голосовые / кружки: " + itoa(s.Voice) + " / " + itoa(s.VideoNotes) + "\n" +
-			"Минут: " + ftoa(s.DurationSec/60)
-	}
-	return "<b>Stats</b>\n" +
-		"Transcripts: " + itoa(s.Transcriptions) + "\n" +
-		"Voice / circles: " + itoa(s.Voice) + " / " + itoa(s.VideoNotes) + "\n" +
-		"Minutes: " + ftoa(s.DurationSec/60)
-}
-
 func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string) error {
-	_ = b.tg.AnswerCallbackQuery(ctx, act.CallbackID, "")
-	switch act.CallbackData {
-	case "m:help":
-		_, markup := homePanel(lang, b.self)
-		return b.tg.EditMessageText(ctx, act.ChatID, act.CallbackMessageID, transcript.HelpText(lang), markup)
-	case "m:stats":
+	owner, action, ok := parseMenuCB(act.CallbackData)
+	if !ok {
+		return b.tg.AnswerCallbackQuery(ctx, act.CallbackID, "")
+	}
+	if act.UserID != owner {
+		return b.tg.AnswerCallbackQuery(ctx, act.CallbackID, transcript.NotYoursText(lang))
+	}
+	if err := b.tg.AnswerCallbackQuery(ctx, act.CallbackID, ""); err != nil {
+		return err
+	}
+	switch action {
+	case "home":
+		text, markup := homePanel(lang, owner)
+		return b.tg.EditMessageText(ctx, act.ChatID, act.CallbackMessageID, text, markup)
+	case "help":
+		text, markup := helpPanel(lang, owner)
+		return b.tg.EditMessageText(ctx, act.ChatID, act.CallbackMessageID, text, markup)
+	case "stats":
 		snap, err := b.store.UserStats(ctx, act.UserID)
 		if err != nil {
 			return err
 		}
-		_, markup := homePanel(lang, b.self)
-		return b.tg.EditMessageText(ctx, act.ChatID, act.CallbackMessageID, renderStats(lang, snap), markup)
-	case "m:close":
-		return b.tg.EditMessageText(ctx, act.ChatID, act.CallbackMessageID, "✓", nil)
+		text, markup := statsPanel(lang, owner, snap)
+		return b.tg.EditMessageText(ctx, act.ChatID, act.CallbackMessageID, text, markup)
+	case "close":
+		return b.tg.DeleteMessage(ctx, act.ChatID, act.CallbackMessageID)
 	default:
 		return nil
 	}
@@ -373,37 +366,4 @@ func (b *Bot) deliverError(ctx context.Context, act decide.Action, lang string, 
 	return err
 }
 
-func itoa(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}
 
-func ftoa(v float64) string {
-	if v < 0 {
-		v = 0
-	}
-	return strings.TrimRight(strings.TrimRight(
-		func() string {
-			s := ""
-			n := int64(v*10 + 0.5)
-			s = itoa(n/10) + "." + itoa(n%10)
-			return s
-		}(), "0"), ".")
-}

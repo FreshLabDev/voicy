@@ -76,6 +76,25 @@ func TestEditEphemeralMessageTextPostsIDs(t *testing.T) {
 	}
 }
 
+func TestDeleteMessagePostsIDs(t *testing.T) {
+	var gotPath, gotBody string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	if err := c.DeleteMessage(context.Background(), -100, 42); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(gotPath, "/deleteMessage") {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if !strings.Contains(gotBody, `"chat_id":-100`) || !strings.Contains(gotBody, `"message_id":42`) {
+		t.Fatalf("body = %s", gotBody)
+	}
+}
+
 func TestGetFileAndDownload(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {

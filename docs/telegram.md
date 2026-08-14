@@ -51,5 +51,9 @@ Telegram.
 ## Message Style
 
 UI panels use classic HTML `sendMessage` / `editMessageText` with link previews
-disabled. User-controlled and transcript text is HTML-escaped. Errors shown to
-the user do not include raw Telegram or Deepgram API strings.
+disabled: `<b>title</b>`, optional `<i>hint</i>`, then a `<blockquote>` body.
+Menu callbacks are `m:<owner_user_id>:<action>`. Close calls `deleteMessage`.
+Transcripts are a blockquote of the Deepgram paragraph text when present;
+language, duration, and confidence stay out of the message. User-controlled
+and transcript text is HTML-escaped. Errors shown to the user do not include
+raw Telegram or Deepgram API strings.

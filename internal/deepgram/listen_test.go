@@ -40,8 +40,15 @@ func TestListenFilePostsTokenAndBinary(t *testing.T) {
 	if got.Text != "rest text" {
 		t.Fatalf("text = %q", got.Text)
 	}
-	if !strings.Contains(rquery(c), "detect_language") {
+	q := rquery(c)
+	if !strings.Contains(q, "detect_language") {
 		t.Fatal("rest query should detect language")
+	}
+	if !strings.Contains(q, "paragraphs=true") {
+		t.Fatal("rest query should request paragraphs")
+	}
+	if strings.Contains(q, "language=multi") {
+		t.Fatal("rest query must keep detect_language, not language=multi")
 	}
 }
 

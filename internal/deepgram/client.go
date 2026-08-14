@@ -97,6 +97,7 @@ func restQuery() string {
 	q.Set("model", "nova-3")
 	q.Set("smart_format", "true")
 	q.Set("detect_language", "true")
+	q.Set("paragraphs", "true")
 	q.Set("mip_opt_out", "true")
 	return q.Encode()
 }

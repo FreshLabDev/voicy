@@ -219,6 +219,22 @@ func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, t
 	return c.post(ctx, "editMessageText", req, &resp)
 }
 
+func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error {
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "deleteMessage", map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+	}, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram deleteMessage returned ok=false")
+	}
+	return nil
+}
+
 func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackID, text string) error {
 	req := map[string]any{"callback_query_id": callbackID}
 	if text != "" {

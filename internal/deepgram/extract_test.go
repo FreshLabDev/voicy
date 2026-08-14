@@ -24,6 +24,28 @@ func TestExtractPrerecordedFromDocsShape(t *testing.T) {
 	}
 }
 
+func TestExtractPrerecordedPrefersParagraphs(t *testing.T) {
+	raw := []byte(`{
+	  "metadata": {"request_id": "p1", "duration": 8},
+	  "results": {"channels": [{"detected_language": "ru", "alternatives": [{
+	    "transcript": "one wall of text",
+	    "confidence": 0.9,
+	    "words": [{"word": "one"}, {"word": "wall"}],
+	    "paragraphs": {"transcript": "\nfirst paragraph.\n\nsecond paragraph."}
+	  }]}]}
+	}`)
+	got, err := ExtractPrerecorded(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Text != "first paragraph.\n\nsecond paragraph." {
+		t.Fatalf("text = %q", got.Text)
+	}
+	if got.Language != "ru" || got.WordCount != 2 {
+		t.Fatalf("meta = %+v", got)
+	}
+}
+
 func TestExtractStreamResults(t *testing.T) {
 	raw := []byte(`{
 	  "type": "Results",

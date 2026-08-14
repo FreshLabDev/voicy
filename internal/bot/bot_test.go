@@ -77,6 +77,10 @@ type fakeTG struct {
 	ephemeral       []string
 	ephemeralEdits  []string
 	drafts          []string
+	edits           []string
+	deleted         []string
+	answered        []string
+	markups         []*telegram.InlineKeyboardMarkup
 	groupCommands   []telegram.BotCommand
 	downloaded      int
 	gotFile         int
@@ -93,9 +97,10 @@ func (f *fakeTG) SetMyCommandsForScope(_ context.Context, commands []telegram.Bo
 	}
 	return nil
 }
-func (f *fakeTG) SendMessage(_ context.Context, _ int64, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+func (f *fakeTG) SendMessage(_ context.Context, _ int64, text string, markup *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
 	f.calls = append(f.calls, "sendMessage")
 	f.sent = append(f.sent, text)
+	f.markups = append(f.markups, markup)
 	return telegram.Message{}, nil
 }
 func (f *fakeTG) SendPrivateMessage(_ context.Context, _, _ int64, text string, _ int) (telegram.Message, error) {
@@ -121,10 +126,22 @@ func (f *fakeTG) SendMessageDraft(_ context.Context, _ int64, _ int, text string
 	f.drafts = append(f.drafts, text)
 	return nil
 }
-func (f *fakeTG) EditMessageText(context.Context, int64, int64, string, *telegram.InlineKeyboardMarkup) error {
+func (f *fakeTG) EditMessageText(_ context.Context, _, _ int64, text string, markup *telegram.InlineKeyboardMarkup) error {
+	f.calls = append(f.calls, "editMessage")
+	f.edits = append(f.edits, text)
+	f.markups = append(f.markups, markup)
 	return nil
 }
-func (f *fakeTG) AnswerCallbackQuery(context.Context, string, string) error { return nil }
+func (f *fakeTG) DeleteMessage(_ context.Context, chatID, messageID int64) error {
+	f.calls = append(f.calls, "deleteMessage")
+	f.deleted = append(f.deleted, itoa64(chatID)+":"+itoa64(messageID))
+	return nil
+}
+func (f *fakeTG) AnswerCallbackQuery(_ context.Context, _, text string) error {
+	f.calls = append(f.calls, "answerCallback")
+	f.answered = append(f.answered, text)
+	return nil
+}
 func (f *fakeTG) SendChatAction(context.Context, int64, string) error       { return nil }
 func (f *fakeTG) GetFile(context.Context, string) (telegram.File, error) {
 	f.gotFile++
@@ -335,6 +352,121 @@ func TestDecideKindsMatchHandle(t *testing.T) {
 	}
 }
 
+func TestHandleStartUsesOwnerCallbacks(t *testing.T) {
+	tg := &fakeTG{}
+	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	upd := parseUpd(t, `{
+	  "update_id": 20,
+	  "message": {
+	    "message_id": 5,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": 7, "type": "private"},
+	    "text": "/start"
+	  }
+	}`)
+	if err := b.Handle(context.Background(), upd); err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.sent) != 1 || !contains(tg.sent[0], "<b>Voicy</b>") || !contains(tg.sent[0], "<blockquote>") {
+		t.Fatalf("start panel = %v", tg.sent)
+	}
+	if len(tg.markups) != 1 || !markupHas(tg.markups[0], "m:7:stats") || !markupHas(tg.markups[0], "m:7:close") {
+		t.Fatalf("markup = %#v", tg.markups)
+	}
+}
+
+func TestHandleCloseDeletes(t *testing.T) {
+	tg := &fakeTG{}
+	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	upd := parseUpd(t, `{
+	  "update_id": 21,
+	  "callback_query": {
+	    "id": "cb1",
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "message": {"message_id": 99, "chat": {"id": 7, "type": "private"}},
+	    "data": "m:7:close"
+	  }
+	}`)
+	if err := b.Handle(context.Background(), upd); err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.deleted) != 1 || tg.deleted[0] != "7:99" {
+		t.Fatalf("deleted = %v", tg.deleted)
+	}
+	if len(tg.edits) != 0 {
+		t.Fatalf("close must delete, not edit: %v", tg.edits)
+	}
+}
+
+func TestHandleForeignCallbackDoesNotEdit(t *testing.T) {
+	tg := &fakeTG{}
+	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	upd := parseUpd(t, `{
+	  "update_id": 22,
+	  "callback_query": {
+	    "id": "cb2",
+	    "from": {"id": 8, "is_bot": false, "first_name": "B", "language_code": "en"},
+	    "message": {"message_id": 99, "chat": {"id": 7, "type": "private"}},
+	    "data": "m:7:stats"
+	  }
+	}`)
+	if err := b.Handle(context.Background(), upd); err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.edits) != 0 || len(tg.deleted) != 0 {
+		t.Fatalf("foreign tap must be ignored, edits=%v deleted=%v", tg.edits, tg.deleted)
+	}
+	if len(tg.answered) != 1 || tg.answered[0] == "" {
+		t.Fatalf("foreign tap should toast, answered=%v", tg.answered)
+	}
+}
+
+func TestParseMenuCB(t *testing.T) {
+	owner, action, ok := parseMenuCB("m:7:help")
+	if !ok || owner != 7 || action != "help" {
+		t.Fatalf("got %d %q %v", owner, action, ok)
+	}
+	if _, _, ok := parseMenuCB("m:stats"); ok {
+		t.Fatal("legacy owner-less callback must not parse")
+	}
+}
+
 func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
+}
+
+func markupHas(m *telegram.InlineKeyboardMarkup, data string) bool {
+	if m == nil {
+		return false
+	}
+	for _, row := range m.InlineKeyboard {
+		for _, btn := range row {
+			if btn.CallbackData == data {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func itoa64(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
 }

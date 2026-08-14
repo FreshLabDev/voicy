@@ -8,6 +8,32 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.3 - 2026-08-14
+
+Menus and transcripts follow the family panel contract. Long voices keep
+Deepgram paragraph breaks.
+
+### Added
+
+- Menu callbacks are owner-scoped (`m:<user_id>:<action>`). A foreign tap is
+  ignored with a short toast.
+- Close deletes the panel instead of replacing it with a checkmark.
+- Empty stats show a short empty state, not zeros.
+- Deepgram Listen requests `paragraphs=true`. The formatted reply uses that
+  paragraph text when Deepgram returns it.
+
+### Changed
+
+- `/start`, Help, and Stats use `<b>title</b>` + `<i>hint</i>` +
+  `<blockquote>` body, with Back/Close on subpanels.
+- Transcripts are a clean blockquote. Language, duration, and confidence are
+  no longer appended.
+
+### Known Limitations
+
+- Cached transcripts from earlier alphas stay a single paragraph until that
+  `file_id` is transcribed again.
+
 ## v0.0.1-alpha.2 - 2026-08-14
 
 File uploads now go to Deepgram prererecorded Listen instead of Live streaming.

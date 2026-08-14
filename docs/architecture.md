@@ -33,7 +33,8 @@ schema (`deploy/core-init.sql`) so migrations boot.
 3. `core.touch` records identity and presence.
 4. A `file_id` cache hit returns the stored transcript without Deepgram.
 5. On a miss, Voicy downloads the file from Telegram and POSTs it to Deepgram
-   prererecorded Listen (`/v1/listen`).
+   prererecorded Listen (`/v1/listen`, `smart_format`, `detect_language`,
+   `paragraphs`).
 6. Successful non-empty text is stored under `file_id` and sent as the final
    message. Empty and failed runs are logged and do not increment `user_stats`.
 

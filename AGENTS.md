@@ -58,7 +58,8 @@ validation, and `govulncheck`.
 
 ## Release Checklist
 
-- `/start` opens the menu in a private chat and an ephemeral prompt in a group.
+- `/start` opens the family panel in a private chat and an ephemeral prompt in a group.
+- Close deletes the panel. Menu callbacks are owner-scoped.
 - A DM voice or video circle returns a transcript.
 - Group `/v` on a reply is public. Group `/vp` is ephemeral then edited.
 - A repeated `file_id` is served from cache.
