@@ -203,7 +203,7 @@ func isNormalClose(err error) bool {
 
 func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType string) (Result, error) {
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		contentType = "audio/ogg"
 	}
 	endpoint := c.rest + ListenPath + "?" + restQuery()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(audio))
@@ -227,20 +227,8 @@ func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType strin
 	return ExtractPrerecorded(body)
 }
 
-// Transcribe streams first and falls back to the REST Listen endpoint.
 func (c *Client) Transcribe(ctx context.Context, audio []byte, contentType string, onPartial func(string)) (Result, error) {
-	res, err := c.StreamFile(ctx, audio, contentType, onPartial)
-	if err == nil && strings.TrimSpace(res.Text) != "" {
-		return res, nil
-	}
-	rest, restErr := c.ListenFile(ctx, audio, contentType)
-	if restErr != nil {
-		if err != nil {
-			return Result{}, fmt.Errorf("stream: %v; rest: %w", err, restErr)
-		}
-		return Result{}, restErr
-	}
-	return rest, nil
+	return c.ListenFile(ctx, audio, contentType)
 }
 
 func redact(key string, err error) error {
