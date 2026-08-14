@@ -6,7 +6,7 @@ import (
 	"html"
 	"strings"
 
-	"github.com/FreshLabDev/voicetotext/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/deepgram"
 )
 
 func Format(res deepgram.Result, lang string) string {
@@ -41,9 +41,9 @@ func Format(res deepgram.Result, lang string) string {
 
 func StartText(lang string) string {
 	if lang == "ru" {
-		return "<b>VoiceToText</b>\nПришли голосовое или кружочек — верну текстом.\nВ группе ответь <code>/v</code> (всем) или <code>/vp</code> (только тебе)."
+		return "<b>Voicy</b>\nПришли голосовое или кружочек — верну текстом.\nВ группе ответь <code>/v</code> (всем) или <code>/vp</code> (только тебе)."
 	}
-	return "<b>VoiceToText</b>\nSend a voice or a video circle — I’ll send the text back.\nIn a group, reply with <code>/v</code> (everyone) or <code>/vp</code> (just you)."
+	return "<b>Voicy</b>\nSend a voice or a video circle — I’ll send the text back.\nIn a group, reply with <code>/v</code> (everyone) or <code>/vp</code> (just you)."
 }
 
 func HelpText(lang string) string {

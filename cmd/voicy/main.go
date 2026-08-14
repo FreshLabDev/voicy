@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/FreshLabDev/voicetotext/internal/bot"
-	"github.com/FreshLabDev/voicetotext/internal/config"
-	"github.com/FreshLabDev/voicetotext/internal/db"
-	"github.com/FreshLabDev/voicetotext/internal/deepgram"
-	"github.com/FreshLabDev/voicetotext/internal/health"
-	"github.com/FreshLabDev/voicetotext/internal/telegram"
+	"github.com/FreshLabDev/voicy/internal/bot"
+	"github.com/FreshLabDev/voicy/internal/config"
+	"github.com/FreshLabDev/voicy/internal/db"
+	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/health"
+	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 var (

@@ -1,6 +1,7 @@
-# VoiceToText — развитие и текущий контракт
+# Voicy — развитие и текущий контракт
 
-Рабочее имя: `voicetotext` (ключ `core.bot`, схема, роль `voicetotext_core`). Стек — Go, своя HTTP-обёртка Telegram, STT — только Deepgram.
+Публичное имя: **Voicy** (репозиторий [FreshLabDev/voicy](https://github.com/FreshLabDev/voicy)).
+Внутренний ключ экосистемы остаётся `voicetotext` (схема, роль `voicetotext_core`). Стек — Go, своя HTTP-обёртка Telegram, STT — только Deepgram.
 
 Этот файл — живой план слайсов **и** зафиксированные продуктовые решения. Реализация идёт по ним, не по старой версии документа.
 

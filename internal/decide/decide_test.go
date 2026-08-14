@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/FreshLabDev/voicetotext/internal/telegram"
+	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 func mustUpdate(t *testing.T, raw string) telegram.Update {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-module github.com/FreshLabDev/voicetotext
+module github.com/FreshLabDev/voicy
 
 go 1.26.5
 

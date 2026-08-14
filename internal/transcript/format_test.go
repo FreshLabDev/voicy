@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/voicetotext/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/deepgram"
 )
 
 func TestFormatEscapesAndMeta(t *testing.T) {

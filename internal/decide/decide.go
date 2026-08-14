@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/FreshLabDev/voicetotext/internal/telegram"
+	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 type Kind string

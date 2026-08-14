@@ -8,12 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/FreshLabDev/voicetotext/internal/db"
-	"github.com/FreshLabDev/voicetotext/internal/decide"
-	"github.com/FreshLabDev/voicetotext/internal/deepgram"
-	"github.com/FreshLabDev/voicetotext/internal/stats"
-	"github.com/FreshLabDev/voicetotext/internal/telegram"
-	"github.com/FreshLabDev/voicetotext/internal/transcript"
+	"github.com/FreshLabDev/voicy/internal/db"
+	"github.com/FreshLabDev/voicy/internal/decide"
+	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/stats"
+	"github.com/FreshLabDev/voicy/internal/telegram"
+	"github.com/FreshLabDev/voicy/internal/transcript"
 )
 
 type Store interface {
@@ -81,7 +81,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) error {
 		return err
 	}
 	return b.tg.SetMyCommandsForScope(ctx, []telegram.BotCommand{
-		{Command: "start", Description: "Open VoiceToText privately", IsEphemeral: true},
+		{Command: "start", Description: "Open Voicy privately", IsEphemeral: true},
 		{Command: "v", Description: "Transcribe for everyone"},
 		{Command: "vp", Description: "Transcribe just for you", IsEphemeral: true},
 	}, &telegram.BotCommandScope{Type: "all_group_chats"})

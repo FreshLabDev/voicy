@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FreshLabDev/voicetotext/internal/db"
-	"github.com/FreshLabDev/voicetotext/internal/decide"
-	"github.com/FreshLabDev/voicetotext/internal/deepgram"
-	"github.com/FreshLabDev/voicetotext/internal/stats"
-	"github.com/FreshLabDev/voicetotext/internal/telegram"
-	"github.com/FreshLabDev/voicetotext/internal/transcript"
+	"github.com/FreshLabDev/voicy/internal/db"
+	"github.com/FreshLabDev/voicy/internal/decide"
+	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/stats"
+	"github.com/FreshLabDev/voicy/internal/telegram"
+	"github.com/FreshLabDev/voicy/internal/transcript"
 )
 
 type fakeStore struct {

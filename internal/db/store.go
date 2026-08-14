@@ -8,9 +8,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/FreshLabDev/voicetotext/internal/deepgram"
-	"github.com/FreshLabDev/voicetotext/internal/stats"
-	"github.com/FreshLabDev/voicetotext/internal/telegram"
+	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/stats"
+	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 type Store struct {

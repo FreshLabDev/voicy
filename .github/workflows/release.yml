@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Build image and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Resolve build metadata
+        id: meta
+        run: |
+          echo "version=${GITHUB_REF_NAME}" >>"$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$GITHUB_OUTPUT"
+          if printf '%s' "${GITHUB_REF_NAME}" | grep -q '-'; then
+            echo "prerelease=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >>"$GITHUB_OUTPUT"
+          fi
+      - name: Lowercase image name
+        id: image
+        run: echo "repo=ghcr.io/${GITHUB_REPOSITORY,,}" >>"$GITHUB_OUTPUT"
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          notes_file="$(mktemp)"
+          awk -v ver="## ${GITHUB_REF_NAME}" '
+            index($0, ver) == 1 && (length($0) == length(ver) || substr($0, length(ver) + 1, 1) == " ") { capture=1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md >"${notes_file}"
+          if [ ! -s "${notes_file}" ]; then
+            printf 'Release %s\n' "${GITHUB_REF_NAME}" >"${notes_file}"
+          fi
+          echo "file=${notes_file}" >>"$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.repo }}:${{ steps.meta.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            DATE=${{ steps.meta.outputs.date }}
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          flags=""
+          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then flags="--prerelease"; fi
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}" ${flags}
+          else
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}" ${flags}
+          fi
