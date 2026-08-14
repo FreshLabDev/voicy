@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+.git
+*.md
+docs
+scratch
+tmp
+bin
+out
