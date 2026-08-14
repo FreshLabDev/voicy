@@ -8,6 +8,7 @@ validation.
 
 ```text
 v0.0.1-alpha.1  first public alpha
+v0.0.1-alpha.2  REST Listen for Telegram file uploads
 v0.0.1-beta.1   live-tested with limited users
 v0.0.1-rc.1     public release candidate
 v0.0.1          first public MVP on this line

@@ -36,12 +36,11 @@ that edit fails, the result is sent in DM. A late `sendMessage` with only
 `receiver_user_id` is not used: Bot API 10.2 allows that solely for chat-admin
 bots.
 
-## Streaming
+## Delivery
 
-While Deepgram is producing interim results Voicy calls `sendMessageDraft`.
-Drafts are a short-lived preview and are often ignored in groups. The durable
-result is always a normal send (`/v`, DM) or an edited ephemeral message
-(`/vp`).
+File audio is sent to Deepgram prererecorded Listen. The durable result is a
+normal send (`/v`, DM) or an edited ephemeral message (`/vp`). `sendMessageDraft`
+is unused on the current file path.
 
 ## Cache
 

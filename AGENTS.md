@@ -13,7 +13,7 @@ Keep Voicy minimal, private by default, and production-minded.
 
 ## Product Boundaries
 
-- STT is Deepgram only (streaming first, prererecorded fallback). No Whisper.
+- STT is Deepgram only. File uploads use prererecorded Listen. No Whisper.
 - DM: any voice or video note is transcribed.
 - Groups: only `/v` (public) or `/vp` (ephemeral, requester-only) as a reply
   to that media. Bare group voices stay quiet.

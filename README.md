@@ -46,7 +46,7 @@ Voicy keeps the first alpha deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.0.1-alpha.1` | First public alpha |
+| Latest | `v0.0.1-alpha.2` | Alpha: REST Listen for file uploads |
 | Stable | — | Not yet. This line is pre-release until `v0.0.1` |
 
 The bot is live for limited testing as [@voicyin_bot](https://t.me/voicyin_bot).
@@ -87,7 +87,7 @@ shared production deployment Voicy instead connects to the existing
 
 1. Open [@voicyin_bot](https://t.me/voicyin_bot) and send `/start`.
 2. In a private chat, send a voice message or a video circle.
-3. Wait for the draft (when Telegram shows it), then the final text.
+3. Wait for the transcript.
 4. In a group, reply to a voice or circle with `/v` (everyone) or `/vp`
    (only you).
 
@@ -118,8 +118,7 @@ Transcription path:
 
 ```text
 getFile -> download bytes
-  -> Deepgram Live WS (interim drafts)
-  -> prererecorded POST if the stream fails
+  -> Deepgram prererecorded POST /v1/listen
   -> persist file_id + text
   -> send final message
 ```
@@ -131,7 +130,7 @@ getFile -> download bytes
 | Included | Excluded |
 |:--|:--|
 | Voice notes and video circles | Arbitrary audio/video documents |
-| Deepgram `nova-3` streaming + REST fallback | Whisper or another STT |
+| Deepgram `nova-3` prererecorded Listen | Whisper or another STT |
 | DM implicit transcribe; group `/v` and `/vp` | Auto-transcribe every group voice |
 | `file_id` cache | Stored audio bytes |
 | `/healthz` | Public metrics surface in this alpha |

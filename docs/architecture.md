@@ -32,10 +32,9 @@ schema (`deploy/core-init.sql`) so migrations boot.
 2. `decide` classifies it: ignore, start, nudge, or transcribe.
 3. `core.touch` records identity and presence.
 4. A `file_id` cache hit returns the stored transcript without Deepgram.
-5. On a miss, Voicy downloads the file from Telegram, streams bytes to Deepgram
-   Live, and falls back to prererecorded Listen if the WebSocket fails.
-6. Interim text is sent with `sendMessageDraft` when the chat accepts drafts.
-7. Successful non-empty text is stored under `file_id` and sent as the final
+5. On a miss, Voicy downloads the file from Telegram and POSTs it to Deepgram
+   prererecorded Listen (`/v1/listen`).
+6. Successful non-empty text is stored under `file_id` and sent as the final
    message. Empty and failed runs are logged and do not increment `user_stats`.
 
 Group `/vp` is registered as an ephemeral command. The bot first replies to the
@@ -52,8 +51,8 @@ with `editEphemeralMessageText` after STT. A late `sendMessage` with only
 - Voicy owns the `voicetotext` schema and, in production, connects to the
   shared `core-postgres` as `voicetotext_core` with `search_path=voicetotext`.
 - Telegram is a first-party HTTP client. A third-party bot SDK is out of scope.
-- Deepgram Live is the preferred path because the product wants streaming
-  drafts. Prerecorded Listen remains the reliable fallback for container
-  formats Telegram already produced (OGG/Opus, MP4).
+- Telegram voice and circles are already finished files, so prererecorded
+  Listen is the upload path. Live WebSocket helpers stay in the client for
+  later use.
 - Cache key is Telegram `file_id`. Audio bytes are not stored.
 - Privacy mode stays on. Groups stay quiet unless `/v` or `/vp` is explicit.

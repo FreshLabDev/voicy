@@ -45,4 +45,35 @@ func TestListenFilePostsTokenAndBinary(t *testing.T) {
 	}
 }
 
+func TestTranscribeUsesRESTListen(t *testing.T) {
+	var gotPath, gotAuth, gotCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotCT = r.Header.Get("Content-Type")
+		_, _ = w.Write([]byte(`{"metadata":{"request_id":"r2","duration":1},"results":{"channels":[{"alternatives":[{"transcript":"via transcribe"}]}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := New("listen-secret")
+	c.SetRESTBase(srv.URL)
+	c.SetHTTP(srv.Client())
+	c.SetDial(func(context.Context, string, http.Header) (Conn, error) {
+		t.Fatal("Transcribe must not open a WebSocket")
+		return nil, nil
+	})
+	got, err := c.Transcribe(context.Background(), []byte("OGG"), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/v1/listen" || gotAuth != "Token listen-secret" {
+		t.Fatalf("path=%q auth=%q", gotPath, gotAuth)
+	}
+	if gotCT != "audio/ogg" {
+		t.Fatalf("default content-type = %q", gotCT)
+	}
+	if got.Text != "via transcribe" {
+		t.Fatalf("text = %q", got.Text)
+	}
+}
+
 func rquery(c *Client) string { return restQuery() }

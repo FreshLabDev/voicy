@@ -8,6 +8,22 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.2 - 2026-08-14
+
+File uploads now go to Deepgram prererecorded Listen instead of Live streaming.
+
+### Changed
+
+- `Transcribe` sends the downloaded Telegram file to `POST /v1/listen`. Default
+  `Content-Type` is `audio/ogg` when Telegram does not provide one.
+- Live WebSocket streaming remains in the client but is no longer the file
+  upload path.
+
+### Fixed
+
+- Empty or mis-detected audio containers are less likely to fail Deepgram
+  because files are sent as prererecorded OGG rather than a raw stream.
+
 ## v0.0.1-alpha.1 - 2026-08-14
 
 First public alpha. A Go Telegram bot that turns a voice message or video circle
