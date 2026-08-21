@@ -1,17 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Production stack on WS04. Joins shared core_net / core-postgres.
-name: voicetotext
+name: voicy
 
 services:
   bot:
-    build:
-      context: .
-      args:
-        VERSION: ${BUILD_VERSION:-dev}
-        COMMIT: ${BUILD_COMMIT:-none}
-        DATE: ${BUILD_DATE:-unknown}
-    image: voicetotext:ws04
-    container_name: voicetotext-bot
+    image: ${VOICY_IMAGE:?VOICY_IMAGE must be an immutable GHCR reference}
+    container_name: voicy-bot
     restart: unless-stopped
     env_file:
       - path: .env

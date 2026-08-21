@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.26.6-alpine AS build
 
 WORKDIR /src
 
@@ -16,7 +16,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o /out/voicy ./cmd/voicy
 
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates \
     && adduser -D -H -u 10001 voicy

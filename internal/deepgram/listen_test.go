@@ -24,7 +24,7 @@ func TestListenFilePostsTokenAndBinary(t *testing.T) {
 	c := New("listen-secret")
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
-	got, err := c.ListenFile(context.Background(), []byte("OGG"), "audio/ogg")
+	got, err := c.ListenFile(context.Background(), []byte("OGG"), "audio/ogg", DefaultOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +64,7 @@ func TestTranscribeUsesRESTListen(t *testing.T) {
 	c := New("listen-secret")
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
-	c.SetDial(func(context.Context, string, http.Header) (Conn, error) {
-		t.Fatal("Transcribe must not open a WebSocket")
-		return nil, nil
-	})
-	got, err := c.Transcribe(context.Background(), []byte("OGG"), "", nil)
+	got, err := c.Transcribe(context.Background(), []byte("OGG"), "", DefaultOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,4 +79,58 @@ func TestTranscribeUsesRESTListen(t *testing.T) {
 	}
 }
 
-func rquery(c *Client) string { return restQuery() }
+func rquery(c *Client) string { return restQuery(DefaultOptions) }
+
+func TestRestQueryFollowsOptions(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"metadata":{"request_id":"r3","duration":1},"results":{"channels":[{"alternatives":[{"transcript":"x"}]}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := New("k")
+	c.SetRESTBase(srv.URL)
+	c.SetHTTP(srv.Client())
+	opts := Options{SmartFormat: false, Paragraphs: false, FillerWords: true, ProfanityFilter: true, Diarize: true}
+	if _, err := c.ListenFile(context.Background(), []byte("OGG"), "", opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"smart_format=false", "paragraphs=false",
+		"filler_words=true", "profanity_filter=true",
+		"diarize_model=latest", "detect_language=true", "mip_opt_out=true",
+	} {
+		if !strings.Contains(gotQuery, want) {
+			t.Fatalf("query %q missing %s", gotQuery, want)
+		}
+	}
+}
+
+func TestRestQueryOmitsOffFlags(t *testing.T) {
+	q := restQuery(DefaultOptions)
+	for _, banned := range []string{"filler_words", "profanity_filter", "diarize"} {
+		if strings.Contains(q, banned) {
+			t.Fatalf("default query must not send %s: %s", banned, q)
+		}
+	}
+}
+
+// A user who turned every STT toggle off must get a genuinely bare request —
+// substituting defaults here would poison the cache row under that variant.
+func TestListenFileZeroOptionsStayZero(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"metadata":{"request_id":"r4","duration":1},"results":{"channels":[{"alternatives":[{"transcript":"raw"}]}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := New("k")
+	c.SetRESTBase(srv.URL)
+	c.SetHTTP(srv.Client())
+	if _, err := c.ListenFile(context.Background(), []byte("OGG"), "", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotQuery, "smart_format=false") || !strings.Contains(gotQuery, "paragraphs=false") {
+		t.Fatalf("zero options must reach the wire, got %q", gotQuery)
+	}
+}

@@ -5,15 +5,15 @@ Keep Voicy minimal, private by default, and production-minded.
 ## Project Shape
 
 - Voicy is one Go service (module `github.com/FreshLabDev/voicy`).
-- PostgreSQL is the only durable store. Domain tables live in a `voicetotext`
+- PostgreSQL is the only durable store. Domain tables live in a `voicy`
   schema. Telegram identity and presence are delegated to shared `core`
-  (`core.touch('voicetotext', …)`).
+  (`core.touch('voicy', …)`).
 - Telegram uses a first-party HTTP client in `internal/telegram`. Long polling
   only.
 
 ## Product Boundaries
 
-- STT is Deepgram only. File uploads use prererecorded Listen. No Whisper.
+- STT is Deepgram only. File uploads use prerecorded Listen. No Whisper.
 - DM: any voice or video note is transcribed.
 - Groups: only `/v` (public) or `/vp` (ephemeral, requester-only) as a reply
   to that media. Bare group voices stay quiet.
@@ -23,7 +23,7 @@ Keep Voicy minimal, private by default, and production-minded.
 ## Data And Security
 
 - Never log the bot token, Deepgram key, or full Telegram API URLs.
-- Connect with `search_path=voicetotext` and call `core.touch` before domain
+- Connect with `search_path=voicy` and call `core.touch` before domain
   writes that FK `core.person`.
 - Secrets live in `.env`, which is gitignored.
 
@@ -33,7 +33,7 @@ Keep Voicy minimal, private by default, and production-minded.
 - Follow `docs/versioning.md`. The first line starts at `v0.0.1-alpha.1`.
 - Use patch versions for fixes, minor versions for MVP-compatible product or
   operations improvements, and reserve `v1.0.0` for a stable production contract.
-- Treat required env vars, the `voicetotext` schema, Deepgram/Telegram
+- Treat required env vars, the `voicy` schema, Deepgram/Telegram
   contracts, group `/v` `/vp` semantics, and the `file_id` cache as
   breaking-sensitive before `v1.0.0`.
 

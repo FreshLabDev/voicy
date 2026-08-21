@@ -1,20 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
-# Local development. Production should join core_net and use voicetotext_core.
-name: voicetotext
+# Local development. Production should join core_net and use voicy_core.
+name: voicy
 
 services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: voicetotext
-      POSTGRES_PASSWORD: voicetotext
-      POSTGRES_DB: voicetotext
+      POSTGRES_USER: voicy
+      POSTGRES_PASSWORD: voicy
+      POSTGRES_DB: voicy
     volumes:
-      - voicetotext-postgres:/var/lib/postgresql/data
+      - voicy-postgres:/var/lib/postgresql/data
       - ./deploy/core-init.sql:/docker-entrypoint-initdb.d/00-core-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U voicetotext -d voicetotext"]
+      test: ["CMD-SHELL", "pg_isready -U voicy -d voicy"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -36,7 +36,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://voicetotext:voicetotext@postgres:5432/voicetotext?sslmode=disable
+      DATABASE_URL: postgres://voicy:voicy@postgres:5432/voicy?sslmode=disable
       HTTP_ADDR: :8080
       MIGRATIONS_DIR: /app/migrations
     ports:
@@ -57,4 +57,4 @@ services:
         max-file: "3"
 
 volumes:
-  voicetotext-postgres:
+  voicy-postgres:

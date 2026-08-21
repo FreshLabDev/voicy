@@ -156,3 +156,65 @@ func TestDecideEphemeralStart(t *testing.T) {
 		t.Fatalf("%+v", act)
 	}
 }
+
+func TestDecideDMLanguageOpensPanel(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 8,
+	  "message": {
+	    "message_id": 17,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A", "language_code": "en"},
+	    "chat": {"id": 7, "type": "private"},
+	    "text": "/language"
+	  }
+	}`)
+	act := Decide(upd, "voicetextbot")
+	if act.Kind != Language || act.Arg != "" {
+		t.Fatalf("%+v", act)
+	}
+}
+
+func TestDecideDMLanguageWithArg(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 9,
+	  "message": {
+	    "message_id": 18,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": 7, "type": "private"},
+	    "text": "/language@voicetextbot ru"
+	  }
+	}`)
+	act := Decide(upd, "voicetextbot")
+	if act.Kind != Language || act.Arg != "ru" {
+		t.Fatalf("%+v", act)
+	}
+}
+
+func TestDecideGroupLanguageIsSilent(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 10,
+	  "message": {
+	    "message_id": 19,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": -100, "type": "supergroup"},
+	    "text": "/language"
+	  }
+	}`)
+	if Decide(upd, "voicetextbot").Kind != Ignore {
+		t.Fatal("group /language must stay quiet")
+	}
+}
+
+func TestDecideLanguageOtherBotIgnored(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 11,
+	  "message": {
+	    "message_id": 20,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": 7, "type": "private"},
+	    "text": "/language@otherbot"
+	  }
+	}`)
+	if Decide(upd, "voicetextbot").Kind != Ignore {
+		t.Fatal("expected ignore for @otherbot")
+	}
+}
