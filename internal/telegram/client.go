@@ -202,6 +202,9 @@ func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID, receiverU
 		OK bool `json:"ok"`
 	}
 	if err := c.post(ctx, "editEphemeralMessageText", req, &resp); err != nil {
+		if messageNotModified(err) {
+			return nil
+		}
 		return err
 	}
 	if !resp.OK {
@@ -224,7 +227,18 @@ func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, t
 	var resp struct {
 		OK bool `json:"ok"`
 	}
-	return c.post(ctx, "editMessageText", req, &resp)
+	err := c.post(ctx, "editMessageText", req, &resp)
+	if messageNotModified(err) {
+		return nil
+	}
+	return err
+}
+
+func messageNotModified(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) &&
+		apiErr.StatusCode == http.StatusBadRequest &&
+		strings.Contains(strings.ToLower(apiErr.Description), "message is not modified")
 }
 
 func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error {
