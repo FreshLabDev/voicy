@@ -8,6 +8,14 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.5 - 2026-08-22
+
+### Fixed
+
+- Repeated ordinary and ephemeral panel actions now treat Telegram's
+  `message is not modified` response as an idempotent success instead of
+  retrying the update and eventually dropping it.
+
 ## v0.0.1-alpha.4 - 2026-08-22
 
 Voicy now has one canonical name from repository folder to production schema,

@@ -85,6 +85,21 @@ func TestEditEphemeralMessageTextPostsIDs(t *testing.T) {
 	}
 }
 
+func TestEditMethodsTreatUnchangedMessageAsSuccess(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content and reply markup are exactly the same"}`))
+	})
+
+	if err := c.EditMessageText(context.Background(), 1, 2, "same", nil); err != nil {
+		t.Fatalf("ordinary edit: %v", err)
+	}
+	if err := c.EditEphemeralMessageText(context.Background(), 1, 3, 4, "same", nil); err != nil {
+		t.Fatalf("ephemeral edit: %v", err)
+	}
+}
+
 func TestDeleteEphemeralMessagePostsIDs(t *testing.T) {
 	var gotPath, gotBody string
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
