@@ -46,45 +46,46 @@ func TestExtractPrerecordedPrefersParagraphs(t *testing.T) {
 	}
 }
 
-func TestExtractStreamResults(t *testing.T) {
+func TestExtractPrerecordedDiarizes(t *testing.T) {
 	raw := []byte(`{
-	  "type": "Results",
-	  "is_final": true,
-	  "duration": 1.2,
-	  "metadata": {"request_id": "req-1"},
-	  "channel": {"alternatives": [{"transcript": "hello world", "confidence": 0.9, "words": [{}, {}]}]}
+	  "metadata": {"request_id": "d1", "duration": 12},
+	  "results": {"channels": [{"detected_language": "en", "alternatives": [{
+	    "transcript": "one big wall of text",
+	    "confidence": 0.9,
+	    "words": [],
+	    "paragraphs": {"transcript": "Hello there. How are you? I am fine.", "paragraphs": [
+	      {"speaker": 0, "sentences": [{"text": "Hello there."}, {"text": "How are you?"}]},
+	      {"speaker": 1, "sentences": [{"text": "I am fine."}]}
+	    ]}
+	  }]}]}
 	}`)
-	got, err := ExtractStream(raw)
+	got, err := ExtractPrerecorded(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Text != "hello world" || !got.IsFinal || got.RequestID != "req-1" {
-		t.Fatalf("got %+v", got)
+	if got.Text != "Hello there. How are you? I am fine." {
+		t.Fatalf("text = %q", got.Text)
+	}
+	if len(got.Turns) != 2 || got.Turns[0].Speaker != 0 || got.Turns[0].Text != "Hello there. How are you?" || got.Turns[1].Speaker != 1 {
+		t.Fatalf("turns = %+v", got.Turns)
 	}
 }
 
-func TestExtractStreamIgnoresMetadataFrame(t *testing.T) {
-	got, err := ExtractStream([]byte(`{"type":"Metadata","request_id":"x"}`))
+func TestExtractPrerecordedSingleSpeakerNoLabels(t *testing.T) {
+	raw := []byte(`{
+	  "metadata": {"request_id": "d2", "duration": 5},
+	  "results": {"channels": [{"detected_language": "en", "alternatives": [{
+	    "transcript": "wall",
+	    "paragraphs": {"transcript": "All mine. Every word.", "paragraphs": [
+	      {"speaker": 0, "sentences": [{"text": "All mine."}, {"text": "Every word."}]}
+	    ]}
+	  }]}]}
+	}`)
+	got, err := ExtractPrerecorded(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Text != "" || got.IsFinal {
-		t.Fatalf("expected empty non-result, got %+v", got)
-	}
-}
-
-func TestAccumulateInterimThenFinal(t *testing.T) {
-	var finals []string
-	finals, display := Accumulate(finals, Result{Text: "hel", IsFinal: false})
-	if display != "hel" {
-		t.Fatalf("interim = %q", display)
-	}
-	finals, display = Accumulate(finals, Result{Text: "hello", IsFinal: true})
-	if display != "hello" || len(finals) != 1 {
-		t.Fatalf("final = %q %v", display, finals)
-	}
-	_, display = Accumulate(finals, Result{Text: "there", IsFinal: false})
-	if display != "hello there" {
-		t.Fatalf("second interim = %q", display)
+	if got.Text != "All mine. Every word." || len(got.Turns) != 0 {
+		t.Fatalf("result = %+v", got)
 	}
 }

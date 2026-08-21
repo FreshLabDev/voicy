@@ -21,36 +21,44 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 	return c
 }
 
-func TestSendMessageDraftPostsDraftID(t *testing.T) {
+func TestSendRichMarkdownPreservesReplyAndThread(t *testing.T) {
 	var gotPath, gotBody string
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
 		gotBody = string(raw)
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":10,"chat":{"id":42,"type":"private"}}}`))
 	})
-	if err := c.SendMessageDraft(context.Background(), 42, 7, "hello"); err != nil {
+	msg, err := c.SendRichMarkdown(context.Background(), 42, 7, 3, "# hello", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(gotPath, "/sendMessageDraft") {
+	if !strings.HasSuffix(gotPath, "/sendRichMessage") {
 		t.Fatalf("path = %q", gotPath)
 	}
-	if !strings.Contains(gotBody, `"draft_id":7`) || !strings.Contains(gotBody, `"chat_id":42`) {
-		t.Fatalf("body = %s", gotBody)
+	for _, want := range []string{`"chat_id":42`, `"markdown":"# hello"`, `"skip_entity_detection":true`, `"message_id":7`, `"message_thread_id":3`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("missing %s in %s", want, gotBody)
+		}
+	}
+	if msg.MessageID != 10 {
+		t.Fatalf("message = %+v", msg)
 	}
 }
 
-func TestSendPrivateMessageSetsReceiver(t *testing.T) {
+func TestSendEphemeralRichMarkdownRepliesToCommand(t *testing.T) {
+	var gotPath string
 	var gotBody string
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
 		gotBody = string(raw)
-		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":-100,"type":"supergroup"}}}`))
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"ephemeral_message_id":8,"chat":{"id":-100,"type":"supergroup"}}}`))
 	})
-	if _, err := c.SendPrivateMessage(context.Background(), -100, 9, "secret", 0); err != nil {
+	if _, err := c.SendEphemeralRichMarkdown(context.Background(), -100, 77, 9, "secret"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(gotBody, `"receiver_user_id":9`) {
+	if !strings.HasSuffix(gotPath, "/sendRichMessage") || !strings.Contains(gotBody, `"ephemeral_message_id":77`) || !strings.Contains(gotBody, `"message_thread_id":9`) {
 		t.Fatalf("body = %s", gotBody)
 	}
 }
@@ -63,16 +71,33 @@ func TestEditEphemeralMessageTextPostsIDs(t *testing.T) {
 		gotBody = string(raw)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
-	if err := c.EditEphemeralMessageText(context.Background(), -100, 9, 77, "done"); err != nil {
+	markup := &InlineKeyboardMarkup{InlineKeyboard: [][]InlineKeyboardButton{{{Text: "x", CallbackData: "x"}}}}
+	if err := c.EditEphemeralMessageText(context.Background(), -100, 9, 77, "done", markup); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasSuffix(gotPath, "/editEphemeralMessageText") {
 		t.Fatalf("path = %q", gotPath)
 	}
-	for _, want := range []string{`"chat_id":-100`, `"receiver_user_id":9`, `"ephemeral_message_id":77`, `"parse_mode":"HTML"`} {
+	for _, want := range []string{`"chat_id":-100`, `"receiver_user_id":9`, `"ephemeral_message_id":77`, `"parse_mode":"HTML"`, `"callback_data":"x"`} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("missing %s in %s", want, gotBody)
 		}
+	}
+}
+
+func TestDeleteEphemeralMessagePostsIDs(t *testing.T) {
+	var gotPath, gotBody string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	if err := c.DeleteEphemeralMessage(context.Background(), -100, 9, 77); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(gotPath, "/deleteEphemeralMessage") || !strings.Contains(gotBody, `"receiver_user_id":9`) || !strings.Contains(gotBody, `"ephemeral_message_id":77`) {
+		t.Fatalf("path=%q body=%s", gotPath, gotBody)
 	}
 }
 
@@ -114,12 +139,21 @@ func TestGetFileAndDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := c.DownloadFile(context.Background(), f.FilePath)
+	body, err := c.DownloadFile(context.Background(), f.FilePath, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(body) != "OGGDATA" {
 		t.Fatalf("got %q", body)
+	}
+}
+
+func TestDownloadRejectsOversizeBody(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("12345"))
+	})
+	if _, err := c.DownloadFile(context.Background(), "voice/x.ogg", 4); err == nil || !strings.Contains(err.Error(), "exceeds 4 bytes") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

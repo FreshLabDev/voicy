@@ -78,19 +78,22 @@ all match.
 
 ## Production Deployment
 
-Production runs the `voicetotext` stack from `/opt/stacks/voicetotext` and uses
-the shared `core-postgres` role `voicetotext_core`. The root
+Production runs the `voicy` stack from `/opt/stacks/voicy` and uses the shared
+`core-postgres` role `voicy_core`. Core migration 011 must be applied before a
+Voicy version that enforces `search_path=voicy` starts. The root
 `docker-compose.yml` is local-development configuration and must not be used as
 a production deployment source. The WS04 file is `deploy/ws04/compose.yaml`.
 
-After the commit and tag are published, deploy only the Voicy stack with the
-WS04 deployment workflow:
+After the tag workflow publishes the image, resolve its digest and put that
+immutable `ghcr.io/freshlabdev/voicy@sha256:...` value in `VOICY_IMAGE`. Never
+deploy a mutable tag.
 
 ```sh
-WS04_HOST=ssh.amdumo.fun ws04 deploy voicetotext --yes --health-timeout 120
-WS04_HOST=ssh.amdumo.fun ws04 stack status voicetotext
-WS04_HOST=ssh.amdumo.fun ws04 audit --stack voicetotext --since 1h
+WS04_HOST=ssh.amdumo.fun ws04 deploy voicy --yes --health-timeout 120
+WS04_HOST=ssh.amdumo.fun ws04 stack status voicy
+WS04_HOST=ssh.amdumo.fun ws04 audit --stack voicy --since 1h
 ```
 
 The final check must confirm a healthy container with no restart, a sane
-`/healthz` body (`db`, `telegram_polling_fresh`), and no token or key in logs.
+`/healthz` body (`db`, `telegram_initialized`, `telegram_polling_fresh`, no
+stuck jobs), and no token or key in logs.

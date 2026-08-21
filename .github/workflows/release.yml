@@ -10,11 +10,47 @@ permissions:
   packages: write
 
 jobs:
-  release:
-    name: Build image and publish release
+  verify:
+    name: Verify release source
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Require tag commit on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify, build, vet, and test
+        run: |
+          go mod verify
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go build ./...
+          go vet ./...
+          go test -race ./...
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: Validate image and Compose
+        run: |
+          docker build -t voicy:release-check .
+          cp .env.example .env
+          docker compose config >/dev/null
+          cp .env.example deploy/ws04/.env
+          VOICY_IMAGE=ghcr.io/freshlabdev/voicy:test docker compose -f deploy/ws04/compose.yaml config >/dev/null
+
+  release:
+    name: Publish image and prerelease
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Resolve build metadata
         id: meta
         run: |
@@ -38,32 +74,51 @@ jobs:
             capture { print }
           ' CHANGELOG.md >"${notes_file}"
           if [ ! -s "${notes_file}" ]; then
-            printf 'Release %s\n' "${GITHUB_REF_NAME}" >"${notes_file}"
+            echo "CHANGELOG.md has no ${GITHUB_REF_NAME} section" >&2
+            exit 1
           fi
           echo "file=${notes_file}" >>"$GITHUB_OUTPUT"
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        id: build
         with:
           context: .
           push: true
-          tags: ${{ steps.image.outputs.repo }}:${{ steps.meta.outputs.version }}
+          tags: |
+            ${{ steps.image.outputs.repo }}:${{ steps.meta.outputs.version }}
+            ${{ steps.image.outputs.repo }}:sha-${{ github.sha }}
+          provenance: mode=max
+          sbom: true
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             COMMIT=${{ github.sha }}
             DATE=${{ steps.meta.outputs.date }}
+      - name: Record immutable image
+        env:
+          IMAGE: ${{ steps.image.outputs.repo }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          NOTES_FILE: ${{ steps.changelog.outputs.file }}
+        run: |
+          printf "\n### Container image\n\n\`%s@%s\`\n" "$IMAGE" "$DIGEST" >>"$NOTES_FILE"
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          flags=""
-          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then flags="--prerelease"; fi
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}" ${flags}
+            if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+              gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}" --prerelease
+            else
+              gh release edit "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}"
+            fi
           else
-            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}" ${flags}
+            if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+              gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}" --prerelease
+            else
+              gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${{ steps.changelog.outputs.file }}"
+            fi
           fi

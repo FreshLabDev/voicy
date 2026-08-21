@@ -18,6 +18,8 @@ type Config struct {
 	HTTPAddr            string
 	LogLevel            string
 	TranscriptRetention time.Duration
+	MaxMediaBytes       int64
+	MaxMediaDuration    time.Duration
 }
 
 func Load() (Config, error) {
@@ -35,6 +37,12 @@ func Load() (Config, error) {
 	}
 	if cfg.TranscriptRetention, err = time.ParseDuration(valueOrDefault("TRANSCRIPT_RETENTION", "2160h")); err != nil || cfg.TranscriptRetention <= 0 {
 		return Config{}, fmt.Errorf("TRANSCRIPT_RETENTION must be a positive duration")
+	}
+	if cfg.MaxMediaBytes, err = strconv.ParseInt(valueOrDefault("MAX_MEDIA_BYTES", "20971520"), 10, 64); err != nil || cfg.MaxMediaBytes <= 0 {
+		return Config{}, fmt.Errorf("MAX_MEDIA_BYTES must be a positive integer")
+	}
+	if cfg.MaxMediaDuration, err = time.ParseDuration(valueOrDefault("MAX_MEDIA_DURATION", "1h")); err != nil || cfg.MaxMediaDuration <= 0 {
+		return Config{}, fmt.Errorf("MAX_MEDIA_DURATION must be a positive duration")
 	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")

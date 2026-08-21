@@ -11,14 +11,16 @@ import (
 type Kind string
 
 const (
-	Ignore             Kind = "ignore"
-	Start              Kind = "start"
-	Stats              Kind = "stats"
-	Help               Kind = "help"
-	Transcribe         Kind = "transcribe"
-	Nudge              Kind = "nudge"
-	Callback           Kind = "callback"
-	Language           Kind = "language"
+	Ignore     Kind = "ignore"
+	Start      Kind = "start"
+	Stats      Kind = "stats"
+	Help       Kind = "help"
+	About      Kind = "about"
+	Retrieve   Kind = "retrieve"
+	Transcribe Kind = "transcribe"
+	Nudge      Kind = "nudge"
+	Callback   Kind = "callback"
+	Language   Kind = "language"
 )
 
 type Visibility string
@@ -47,6 +49,7 @@ type Action struct {
 	User               telegram.User
 	Chat               telegram.Chat
 	LanguageCode       string
+	Arg                string
 	ReplyToID          int64
 	Ephemeral          bool
 	EphemeralMessageID int64
@@ -61,16 +64,19 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 	if upd.Callback != nil {
 		from := upd.Callback.From
 		return Action{
-			Kind:              Callback,
-			ChatID:            upd.Callback.Message.Chat.ID,
-			UserID:            from.ID,
-			User:              from,
-			Chat:              upd.Callback.Message.Chat,
-			LanguageCode:      from.LanguageCode,
-			CallbackID:        upd.Callback.ID,
-			CallbackData:      upd.Callback.Data,
-			CallbackMessageID: upd.Callback.Message.MessageID,
-			UpdateID:          upd.UpdateID,
+			Kind:               Callback,
+			ChatID:             upd.Callback.Message.Chat.ID,
+			ThreadID:           upd.Callback.Message.MessageThreadID,
+			UserID:             from.ID,
+			User:               from,
+			Chat:               upd.Callback.Message.Chat,
+			LanguageCode:       from.LanguageCode,
+			CallbackID:         upd.Callback.ID,
+			CallbackData:       upd.Callback.Data,
+			CallbackMessageID:  upd.Callback.Message.MessageID,
+			Ephemeral:          upd.Callback.Message.EphemeralMessageID != 0,
+			EphemeralMessageID: upd.Callback.Message.EphemeralMessageID,
+			UpdateID:           upd.UpdateID,
 		}
 	}
 	msg := upd.Message
@@ -97,7 +103,7 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 	}
 
 	if text != "" && strings.HasPrefix(text, "/") {
-		cmd, _, forUs := parseCommand(text, selfUsername)
+		cmd, arg, forUs := parseCommand(text, selfUsername)
 		if !forUs {
 			return withKind(base, Ignore)
 		}
@@ -107,11 +113,39 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 				// Ordinary group /start: stay quiet; ephemeral handler covers 10.2.
 				return withKind(base, Ignore)
 			}
-			return withKind(base, Start)
+			if private {
+				if token, ok := strings.CutPrefix(arg, "transcript_"); ok && validToken(token) {
+					act := withKind(base, Retrieve)
+					act.Arg = token
+					return act
+				}
+			}
+			act := withKind(base, Start)
+			act.Arg = arg
+			return act
 		case "stats":
+			if !private {
+				return withKind(base, Ignore)
+			}
 			return withKind(base, Stats)
-		case "help", "about":
+		case "help":
+			if !private {
+				return withKind(base, Ignore)
+			}
 			return withKind(base, Help)
+		case "about":
+			if !private {
+				return withKind(base, Ignore)
+			}
+			return withKind(base, About)
+		case "language":
+			// Settings live in DM; a group /language stays quiet.
+			if !private {
+				return withKind(base, Ignore)
+			}
+			act := withKind(base, Language)
+			act.Arg = arg
+			return act
 		case "v":
 			return transcribeCommand(base, msg, private, Public)
 		case "vp":
@@ -143,6 +177,18 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 		return withKind(base, Nudge)
 	}
 	return withKind(base, Ignore)
+}
+
+func validToken(token string) bool {
+	if len(token) < 16 || len(token) > 64 {
+		return false
+	}
+	for _, r := range token {
+		if !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '_' && r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func transcribeCommand(base Action, msg *telegram.Message, private bool, vis Visibility) Action {

@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/FreshLabDev/voicy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/voicy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
-  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/version-v0.0.1--alpha.3-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="current version"></a>
+  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/version-v0.0.1--alpha.4-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="current version"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/voicy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/voicyin_bot"><img src="https://img.shields.io/badge/telegram-%40voicyin__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
@@ -46,7 +46,7 @@ Voicy keeps the first alpha deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.0.1-alpha.3` | Alpha: family panels and paragraph transcripts |
+| Latest | `v0.0.1-alpha.4` | Alpha: Rich Markdown, reliable jobs, settings, and human stats |
 | Stable | — | Not yet. This line is pre-release until `v0.0.1` |
 
 The bot is live for limited testing as [@voicyin_bot](https://t.me/voicyin_bot).
@@ -95,14 +95,16 @@ shared production deployment Voicy instead connects to the existing
 only to the user who invoked it. Bare voices in a group are ignored.
 
 A file that Voicy has already transcribed is served from cache. The audio file
-stays on Telegram; Voicy stores the `file_id` and the text.
+stays on Telegram; Voicy stores the `file_id` and the text. Long transcripts
+use Bot API Rich Markdown messages up to 32,768 characters each and split into
+multiple readable messages when needed. Voicy never sends transcript files.
 
 ---
 
 ## How It Works
 
 Voicy is one Go service with PostgreSQL as its only durable store. Domain tables
-— transcript cache, jobs, user stats, poll offset — live in a `voicetotext`
+— transcript cache, jobs, user stats, poll offset — live in a `voicy`
 schema. Telegram identity and presence are delegated to a shared `core` schema
 (`core.person`, `core.chat`), which Voicy upserts via `core.touch` before any
 dependent write. In production that schema lives in the shared `core-postgres`
@@ -117,10 +119,10 @@ http server      -> /healthz
 Transcription path:
 
 ```text
-getFile -> download bytes
-  -> Deepgram prererecorded POST /v1/listen
+getFile -> bounded download
+  -> Deepgram prerecorded POST /v1/listen
   -> persist file_id + text
-  -> send final message
+  -> send Rich Markdown
 ```
 
 ---
@@ -130,7 +132,7 @@ getFile -> download bytes
 | Included | Excluded |
 |:--|:--|
 | Voice notes and video circles | Arbitrary audio/video documents |
-| Deepgram `nova-3` prererecorded Listen | Whisper or another STT |
+| Deepgram `nova-3` prerecorded Listen | Whisper or another STT |
 | DM implicit transcribe; group `/v` and `/vp` | Auto-transcribe every group voice |
 | `file_id` cache | Stored audio bytes |
 | `/healthz` | Public metrics surface in this alpha |
@@ -143,12 +145,14 @@ getFile -> download bytes
 |:--|:--:|:--|:--|
 | `TELEGRAM_BOT_TOKEN` | yes | — | Bot token from BotFather |
 | `DEEPGRAM_API_KEY` | yes | — | Deepgram project API key |
-| `DATABASE_URL` | yes | — | PostgreSQL URL. Production needs `search_path=voicetotext` (append `options=-csearch_path%3Dvoicetotext`) |
+| `DATABASE_URL` | yes | — | PostgreSQL URL for `voicy_core`; the service enforces `search_path=voicy` |
 | `HTTP_ADDR` | no | `:8080` | HTTP listen address |
 | `MIGRATIONS_DIR` | no | `./migrations` | Migration directory |
 | `AUTO_MIGRATE` | no | `true` | Run migrations on startup |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error` |
-| `TRANSCRIPT_RETENTION` | no | `2160h` | Reserved for later cleanup of raw rows |
+| `TRANSCRIPT_RETENTION` | no | `2160h` | Retain terminal jobs and cached transcripts since last use |
+| `MAX_MEDIA_BYTES` | no | `20971520` | Maximum Telegram media download size |
+| `MAX_MEDIA_DURATION` | no | `1h` | Maximum voice or video-circle duration |
 
 ---
 
@@ -167,19 +171,19 @@ getFile -> download bytes
 ## Deployment
 
 Local Compose is not the production source. Production runs from
-`/opt/stacks/voicetotext` on the shared `core_net` and the `voicetotext_core`
+`/opt/stacks/voicy` on the shared `core_net` and the `voicy_core`
 role. See [`docs/releases.md`](docs/releases.md).
 
-`/healthz` reports database status, Telegram polling freshness, job counts, and
-the build version without exposing secrets.
+`/healthz` reports database status, Telegram initialization, polling freshness,
+stuck jobs, job counts, and build metadata without exposing secrets.
 
 ---
 
 ## Testing
 
 ```sh
-docker run --rm -v "$PWD":/src -w /src golang:1.26.5-alpine go test ./...
-docker run --rm -v "$PWD":/src -w /src golang:1.26.5-alpine go vet ./...
+docker run --rm -v "$PWD":/src -w /src golang:1.26.6-alpine go test ./...
+docker run --rm -v "$PWD":/src -w /src golang:1.26.6-alpine go vet ./...
 cp .env.example .env
 docker compose config
 ```
@@ -191,7 +195,7 @@ docker compose config
 | Document | Purpose |
 |:--|:--|
 | [Architecture](docs/architecture.md) | Service structure and core decisions |
-| [Telegram behavior](docs/telegram.md) | Commands, groups, drafts, cache |
+| [Telegram behavior](docs/telegram.md) | Commands, privacy, Rich Markdown, cache |
 | [Versioning](docs/versioning.md) | Pre-release and stable version line |
 | [Release process](docs/releases.md) | Changelog and GitHub Release rules |
 

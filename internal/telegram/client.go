@@ -28,7 +28,7 @@ func NewClient(token string) *Client {
 	return &Client{
 		token:   token,
 		apiBase: "https://api.telegram.org",
-		http:    &http.Client{},
+		http:    &http.Client{Timeout: 2 * time.Minute},
 		timeout: 30 * time.Second,
 		sleep:   sleep,
 	}
@@ -102,20 +102,6 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, mar
 	}, markup)
 }
 
-func (c *Client) SendPrivateMessage(ctx context.Context, chatID, receiverUserID int64, text string, threadID int) (Message, error) {
-	req := map[string]any{
-		"chat_id":                  chatID,
-		"receiver_user_id":         receiverUserID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
-	}
-	if threadID > 0 {
-		req["message_thread_id"] = threadID
-	}
-	return c.sendMessage(ctx, req, nil)
-}
-
 func (c *Client) SendEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {
 	req := map[string]any{
 		"chat_id":                  chatID,
@@ -130,20 +116,58 @@ func (c *Client) SendEphemeralMessage(ctx context.Context, chatID, receiverUserI
 	return c.sendMessage(ctx, req, markup)
 }
 
-func (c *Client) SendReply(ctx context.Context, chatID, replyTo int64, threadID int, text string) (Message, error) {
+func (c *Client) SendRichMarkdown(ctx context.Context, chatID, replyTo int64, threadID int, markdown string, markup *InlineKeyboardMarkup) (Message, error) {
 	req := map[string]any{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id": chatID,
+		"rich_message": map[string]any{
+			"markdown":              markdown,
+			"skip_entity_detection": true,
+		},
 	}
 	if replyTo > 0 {
-		req["reply_parameters"] = map[string]any{"message_id": replyTo}
+		req["reply_parameters"] = map[string]any{
+			"message_id":                  replyTo,
+			"allow_sending_without_reply": true,
+		}
 	}
 	if threadID > 0 {
 		req["message_thread_id"] = threadID
 	}
-	return c.sendMessage(ctx, req, nil)
+	if markup != nil {
+		req["reply_markup"] = markup
+	}
+	return c.sendRichMessage(ctx, req)
+}
+
+func (c *Client) SendEphemeralRichMarkdown(ctx context.Context, chatID, ephemeralReplyTo int64, threadID int, markdown string) (Message, error) {
+	req := map[string]any{
+		"chat_id": chatID,
+		"rich_message": map[string]any{
+			"markdown":              markdown,
+			"skip_entity_detection": true,
+		},
+		"reply_parameters": map[string]any{
+			"ephemeral_message_id": ephemeralReplyTo,
+		},
+	}
+	if threadID > 0 {
+		req["message_thread_id"] = threadID
+	}
+	return c.sendRichMessage(ctx, req)
+}
+
+func (c *Client) sendRichMessage(ctx context.Context, req map[string]any) (Message, error) {
+	var resp struct {
+		OK     bool    `json:"ok"`
+		Result Message `json:"result"`
+	}
+	if err := c.post(ctx, "sendRichMessage", req, &resp); err != nil {
+		return Message{}, err
+	}
+	if !resp.OK {
+		return Message{}, fmt.Errorf("telegram sendRichMessage returned ok=false")
+	}
+	return resp.Result, nil
 }
 
 func (c *Client) sendMessage(ctx context.Context, req map[string]any, markup *InlineKeyboardMarkup) (Message, error) {
@@ -163,32 +187,16 @@ func (c *Client) sendMessage(ctx context.Context, req map[string]any, markup *In
 	return resp.Result, nil
 }
 
-// SendMessageDraft streams a 30s preview. Groups often ignore it; callers must still send a final message.
-func (c *Client) SendMessageDraft(ctx context.Context, chatID int64, draftID int, text string) error {
-	req := map[string]any{
-		"chat_id":  chatID,
-		"draft_id": draftID,
-		"text":     text,
-	}
-	var resp struct {
-		OK bool `json:"ok"`
-	}
-	if err := c.post(ctx, "sendMessageDraft", req, &resp); err != nil {
-		return err
-	}
-	if !resp.OK {
-		return fmt.Errorf("telegram sendMessageDraft returned ok=false")
-	}
-	return nil
-}
-
-func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string) error {
+func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *InlineKeyboardMarkup) error {
 	req := map[string]any{
 		"chat_id":              chatID,
 		"receiver_user_id":     receiverUserID,
 		"ephemeral_message_id": ephemeralMessageID,
 		"text":                 text,
 		"parse_mode":           "HTML",
+	}
+	if markup != nil {
+		req["reply_markup"] = markup
 	}
 	var resp struct {
 		OK bool `json:"ok"`
@@ -235,6 +243,23 @@ func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) err
 	return nil
 }
 
+func (c *Client) DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error {
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.post(ctx, "deleteEphemeralMessage", map[string]any{
+		"chat_id":              chatID,
+		"receiver_user_id":     receiverUserID,
+		"ephemeral_message_id": ephemeralMessageID,
+	}, &resp); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return fmt.Errorf("telegram deleteEphemeralMessage returned ok=false")
+	}
+	return nil
+}
+
 func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackID, text string) error {
 	req := map[string]any{"callback_query_id": callbackID}
 	if text != "" {
@@ -267,9 +292,14 @@ func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {
 	return resp.Result, nil
 }
 
-func (c *Client) DownloadFile(ctx context.Context, filePath string) ([]byte, error) {
+func (c *Client) DownloadFile(ctx context.Context, filePath string, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return nil, fmt.Errorf("download limit must be positive")
+	}
+	downloadCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
 	rawURL := strings.TrimRight(c.apiBase, "/") + "/file/bot" + c.token + "/" + strings.TrimPrefix(filePath, "/")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, c.redactError(err)
 	}
@@ -281,7 +311,14 @@ func (c *Client) DownloadFile(ctx context.Context, filePath string) ([]byte, err
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, parseAPIError("downloadFile", resp.StatusCode, resp.Body)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 21<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, c.redactError(err)
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("telegram file exceeds %d bytes", maxBytes)
+	}
+	return body, nil
 }
 
 func (c *Client) get(ctx context.Context, method string, values url.Values, out any) error {
@@ -373,16 +410,16 @@ func (c *Client) redactError(err error) error {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	if c.token != "" {
-		msg = strings.ReplaceAll(msg, c.token, "***")
-	}
 	cause := err
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		cause = urlErr.Err
 	}
-	return &transportError{msg: msg, cause: cause}
+	msg := cause.Error()
+	if c.token != "" {
+		msg = strings.ReplaceAll(msg, c.token, "***")
+	}
+	return &transportError{msg: "telegram transport failed: " + msg, cause: cause}
 }
 
 type transportError struct {

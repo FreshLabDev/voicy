@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
--- LOCAL-DEV ONLY. Minimal core.person/core.chat/core.touch plus the voicetotext schema.
+-- LOCAL-DEV ONLY. Minimal core.person/core.chat/core.touch plus the voicy schema.
 CREATE SCHEMA IF NOT EXISTS core;
-CREATE SCHEMA IF NOT EXISTS voicetotext;
+CREATE SCHEMA IF NOT EXISTS voicy;
 
 CREATE TABLE IF NOT EXISTS core.person (
   telegram_user_id bigint PRIMARY KEY,
@@ -47,17 +47,49 @@ BEGIN
       username = COALESCE(EXCLUDED.username, ch.username),
       last_seen_at = EXCLUDED.last_seen_at, updated_at = EXCLUDED.updated_at;
   END IF;
+  IF p_tg_lang IS NOT NULL AND btrim(p_tg_lang) <> '' THEN
+    INSERT INTO core.user_language AS ul (bot, subject_id, language, source)
+    VALUES (p_bot, p_user_id, lower(split_part(btrim(p_tg_lang), '-', 1)), 'client')
+    ON CONFLICT (bot, subject_id) DO UPDATE SET
+      language = CASE WHEN ul.source = 'manual' THEN ul.language ELSE EXCLUDED.language END,
+      source   = CASE WHEN ul.source = 'manual' THEN 'manual' ELSE 'client' END,
+      updated_at = now();
+  END IF;
 END $$;
+
+-- Local stand-in for the core language hub. The real one keeps per-bot
+-- observations with manual/auto/client ranking across the whole bot fleet;
+-- one row per (bot, subject) with manual-beats-client merge is enough here.
+CREATE TABLE IF NOT EXISTS core.user_language (
+  bot text NOT NULL,
+  subject_id bigint NOT NULL,
+  language text NOT NULL,
+  source text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (bot, subject_id)
+);
 
 CREATE OR REPLACE FUNCTION core.set_language(
   p_bot text, p_scope text, p_subject bigint, p_lang text, p_source text
 ) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-  NULL;
+  IF p_lang IS NULL OR btrim(p_lang) = '' THEN
+    RETURN;
+  END IF;
+  INSERT INTO core.user_language AS ul (bot, subject_id, language, source, updated_at)
+  VALUES (p_bot, p_subject, lower(split_part(btrim(p_lang), '-', 1)), p_source, now())
+  ON CONFLICT (bot, subject_id) DO UPDATE SET
+    language = EXCLUDED.language,
+    source = EXCLUDED.source,
+    updated_at = now();
 END $$;
 
 CREATE OR REPLACE FUNCTION core.effective_language(
   p_user bigint, p_chat bigint DEFAULT NULL, p_prefer text DEFAULT 'user'
 ) RETURNS text LANGUAGE sql STABLE AS $$
-  SELECT NULL::text;
+  SELECT l.language
+  FROM core.user_language l
+  WHERE l.subject_id = p_user
+  ORDER BY (l.source = 'manual') DESC, l.updated_at DESC
+  LIMIT 1;
 $$;

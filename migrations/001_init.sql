@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: Apache-2.0
--- Domain tables in search_path=voicetotext. Identity stays in core.*.
+-- Domain tables in search_path=voicy. Identity stays in core.*.
 
 CREATE TABLE IF NOT EXISTS transcripts (
   file_id TEXT PRIMARY KEY,

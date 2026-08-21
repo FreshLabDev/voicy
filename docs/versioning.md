@@ -10,6 +10,7 @@ validation.
 v0.0.1-alpha.1  first public alpha
 v0.0.1-alpha.2  REST Listen for Telegram file uploads
 v0.0.1-alpha.3  family panels, owner callbacks, Deepgram paragraphs
+v0.0.1-alpha.4  Rich Markdown, reliable jobs, settings, Core rename
 v0.0.1-beta.1   live-tested with limited users
 v0.0.1-rc.1     public release candidate
 v0.0.1          first public MVP on this line
@@ -46,7 +47,7 @@ Breaking changes must be explicit when they affect:
 
 - required environment variables
 - PostgreSQL schema or migration requirements
-- Deepgram Listen/streaming request shape
+- Deepgram Listen request shape
 - group `/v` and `/vp` semantics
 - `file_id` cache behavior
 - Docker Compose or deployment assumptions

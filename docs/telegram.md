@@ -2,58 +2,55 @@
 
 ## Commands
 
-`/start` opens the menu in DM. In groups and supergroups it is registered as a
-Bot API 10.2 ephemeral command: the prompt is visible only to the invoking
-user. An ordinary non-ephemeral group `/start` gets no public response.
-
-| Command | Where | Purpose |
+| Command | Surface | Behavior |
 |:--|:--|:--|
-| `/start` | private | Inline menu (stats, help, close) |
-| `/start` | groups | Ephemeral DM prompt |
-| `/v` | groups (and DM) | Transcribe the replied voice or circle for everyone |
-| `/vp` | groups (ephemeral) and DM | Transcribe only for the requester |
-| `/stats` `/help` | private, also from the menu | Stats and help panels |
+| `/start` | DM | Owner-scoped family panel |
+| `/start` | group | Ephemeral panel |
+| `/v` | reply in group | Public transcript in the same topic |
+| `/vp` | ephemeral reply in group | Requester-only transcript |
+| `/language [ru\|en]` | DM | Open or change shared interface language |
+| `/stats` | DM | Personal stats with a global tab |
+| `/help`, `/about` | DM | Help and project details |
 
-Only `/start` is published for private chats. Groups see `/start` (ephemeral),
-`/v`, and `/vp` (ephemeral). A command is handled only when it is bare or
-addressed to this bot. An unknown command nudges the user in private chats
-only.
-
-All setup happens through inline keyboards or a voice/circle. Other text in a
-group is ignored so the bot remains quiet.
-
-## Groups
-
-A voice or video circle without `/v` or `/vp` is ignored. Privacy mode stays
-on, so Voicy does not see every voice in the chat.
-
-`/v` replies in the same chat and topic with a public transcript.
-
-`/vp` is ephemeral. Voicy immediately replies to the incoming
-`ephemeral_message_id` with a placeholder so Telegram's 15-second window is not
-spent on Deepgram. After transcription it calls `editEphemeralMessageText`. If
-that edit fails, the result is sent in DM. A late `sendMessage` with only
-`receiver_user_id` is not used: Bot API 10.2 allows that solely for chat-admin
-bots.
+Bare group media and non-ephemeral group `/vp` stay silent. Unknown group
+commands stay silent. Menu callbacks include the owner ID and foreign taps only
+receive a short callback toast.
 
 ## Delivery
 
-File audio is sent to Deepgram prererecorded Listen. The durable result is a
-normal send (`/v`, DM) or an edited ephemeral message (`/vp`). `sendMessageDraft`
-is unused on the current file path.
+Public and DM transcripts use Bot API `sendRichMessage` with a
+`rich_message.markdown` payload. Reply and topic identifiers are preserved.
+The Bot API limit is 32,768 UTF-8 characters, so longer text is split at a
+paragraph or word boundary into independently valid, numbered Rich Markdown
+messages. No transcript is sent as a document.
 
-## Cache
+For `/vp`, Voicy immediately creates an ephemeral placeholder. Results up to
+4,096 characters edit it directly. Longer single-part results use an ephemeral
+Rich Markdown reply and remove the placeholder. If Telegram rejects that path,
+Voicy tries the requester's DM. If the user has not opened the bot, the
+placeholder receives an owner-bound `/start transcript_<token>` deep link.
 
-The same Telegram `file_id` is served from `voicetotext.transcripts` without a
-new Listen call. Voicy stores the id and the text. The audio file stays on
-Telegram.
+## Cache and Settings
 
-## Message Style
+The cache key is `(file_id, variant)` in `voicy.transcripts`. The variant
+contains only Deepgram-affecting settings, so delivery formatting does not
+duplicate recognition work.
 
-UI panels use classic HTML `sendMessage` / `editMessageText` with link previews
-disabled: `<b>title</b>`, optional `<i>hint</i>`, then a `<blockquote>` body.
-Menu callbacks are `m:<owner_user_id>:<action>`. Close calls `deleteMessage`.
-Transcripts are a blockquote of the Deepgram paragraph text when present;
-language, duration, and confidence stay out of the message. User-controlled
-and transcript text is HTML-escaped. Errors shown to the user do not include
-raw Telegram or Deepgram API strings.
+| Key | Default | Effect |
+|:--|:--|:--|
+| `smart_format` | on | Punctuation, numbers, dates |
+| `paragraphs` | on | Paragraph breaks |
+| `filler_words` | off | Keep filler words |
+| `profanity_filter` | off | Mask profanity |
+| `diarize` | off | Speaker turns using `diarize_model=latest` |
+| `quote` | on | Render transcript as a blockquote |
+| `meta` | off | Show language, duration, and confidence |
+
+Settings callbacks carry `set:<key>:<0|1>` and are idempotent. Interface
+language is shared through Core and falls back to the Telegram profile hint.
+
+## Message Safety
+
+Classic menu panels use Telegram HTML. Transcript and user-controlled text is
+escaped before it enters Rich Markdown or HTML wrappers. Errors shown to users
+never include raw upstream payloads, tokens, keys, or full Bot API URLs.
