@@ -8,6 +8,13 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.6 - 2026-08-22
+
+### Operations
+
+- Updated pinned Docker release actions to their Node 24 generations, removing
+  GitHub's Node 20 deprecation annotations from the release workflow.
+
 ## v0.0.1-alpha.5 - 2026-08-22
 
 ### Fixed
