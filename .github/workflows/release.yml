@@ -42,6 +42,7 @@ jobs:
           docker build -t voicy:release-check .
           cp .env.example .env
           docker compose config >/dev/null
+          cp .env.example deploy/ws04/.env
           VOICY_IMAGE=ghcr.io/freshlabdev/voicy:test docker compose -f deploy/ws04/compose.yaml config >/dev/null
 
   release:
