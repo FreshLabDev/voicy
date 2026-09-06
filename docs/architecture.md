@@ -16,9 +16,13 @@ surface. PostgreSQL is its only durable store.
   `internal/telegram`. There is no SDK and no webhook mode.
 - `TELEGRAM_API_BASE` selects the Bot API server. The shared self-hosted one on
   `telegram_bot_api_net` runs with `TELEGRAM_LOCAL`, so `getFile` answers with an
-  absolute path in its data directory; Voicy reads the bytes from the mounted
-  volume and deletes the file, because a local server never reclaims them. The
-  cloud server keeps returning relative paths and is fetched over HTTP.
+  absolute path in its data directory. That directory is not mounted into Voicy:
+  it holds one subdirectory per bot named after that bot's token, so mounting it
+  would expose every other bot's credentials. Voicy makes the path relative
+  again and fetches it from the same server over the internal network, which is
+  what lifts the 20 MB ceiling. If the directory is mounted anyway, the bytes
+  are read from disk and the file is deleted, since a local server never
+  reclaims them.
 - Speech recognition is Deepgram prerecorded Listen only. There is no streaming
   transport or draft-message path.
 

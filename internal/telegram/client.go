@@ -360,18 +360,27 @@ func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {
 
 // DownloadFile fetches the media behind a getFile result.
 //
-// A local Bot API server started with TELEGRAM_LOCAL returns an absolute path
-// on its own filesystem instead of a relative one. When that directory is
-// mounted here the bytes are read straight from disk, which is both the
-// intended use of a local server and the only way past the cloud API's 20 MB
-// ceiling. The local server never cleans those files up, so a file read this
-// way is removed afterwards.
+// A Bot API server started with TELEGRAM_LOCAL answers with an absolute path on
+// its own filesystem rather than a relative one. If that directory happens to be
+// mounted here the bytes are read straight from disk and the file is removed,
+// because a local server never reclaims them. It usually is not mounted: the
+// server's data directory holds one subdirectory per bot named after that bot's
+// token, so mounting it would hand Voicy every other bot's credentials. The
+// normal path is therefore to make the path relative again and fetch it over
+// the local network, which still lifts the cloud API's 20 MB ceiling.
 func (c *Client) DownloadFile(ctx context.Context, filePath string, maxBytes int64) ([]byte, error) {
 	if maxBytes <= 0 {
 		return nil, fmt.Errorf("download limit must be positive")
 	}
 	if strings.HasPrefix(filePath, "/") {
-		return c.readLocalFile(filePath, maxBytes)
+		body, err := c.readLocalFile(filePath, maxBytes)
+		if err == nil {
+			return body, nil
+		}
+		if errors.Is(err, errFileTooLarge) {
+			return nil, err
+		}
+		filePath = relativeLocalPath(filePath, c.token)
 	}
 	downloadCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -398,27 +407,45 @@ func (c *Client) DownloadFile(ctx context.Context, filePath string, maxBytes int
 	return body, nil
 }
 
-// readLocalFile reads a file produced by a local Bot API server. The path comes
-// from getFile, never from user input.
+// errFileTooLarge marks a limit that a second attempt cannot get past, so the
+// HTTP fallback is not tried for a file we already know is oversize.
+var errFileTooLarge = errors.New("telegram file exceeds the download limit")
+
+// readLocalFile reads a file produced by a local Bot API server whose data
+// directory is mounted here. The path comes from getFile, never from user input.
 func (c *Client) readLocalFile(path string, maxBytes int64) ([]byte, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("local bot api file unavailable: %w", err)
 	}
 	if info.Size() > maxBytes {
-		return nil, fmt.Errorf("telegram file exceeds %d bytes", maxBytes)
+		return nil, fmt.Errorf("%w: %d bytes", errFileTooLarge, info.Size())
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read local bot api file: %w", err)
 	}
 	if int64(len(body)) > maxBytes {
-		return nil, fmt.Errorf("telegram file exceeds %d bytes", maxBytes)
+		return nil, fmt.Errorf("%w: %d bytes", errFileTooLarge, len(body))
 	}
-	// Best effort: a local server keeps every downloaded file forever, and the
-	// volume is shared with the other bots.
+	// A local server keeps every file it ever produced, and the directory is
+	// shared with the other bots.
 	_ = os.Remove(path)
 	return body, nil
+}
+
+// relativeLocalPath turns "/var/lib/telegram-bot-api/<token>/voice/file_1.oga"
+// back into "voice/file_1.oga" so it can be fetched from the same server over
+// HTTP. An unrecognized shape is returned unchanged and fails loudly as a 404
+// rather than silently downloading something else.
+func relativeLocalPath(path, token string) string {
+	if token == "" {
+		return path
+	}
+	if _, rest, ok := strings.Cut(path, "/"+token+"/"); ok {
+		return rest
+	}
+	return path
 }
 
 // LogOut releases the token from the current Bot API server so it can be used

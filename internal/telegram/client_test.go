@@ -281,7 +281,11 @@ func TestDownloadReadsLocalBotAPIPath(t *testing.T) {
 }
 
 func TestDownloadRejectsOversizeLocalFile(t *testing.T) {
-	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {})
+	var httpCalls int
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		httpCalls++
+		_, _ = w.Write(make([]byte, 64))
+	})
 	path := filepath.Join(t.TempDir(), "big.oga")
 	if err := os.WriteFile(path, make([]byte, 64), 0o600); err != nil {
 		t.Fatal(err)
@@ -289,9 +293,50 @@ func TestDownloadRejectsOversizeLocalFile(t *testing.T) {
 	if _, err := c.DownloadFile(context.Background(), path, 16); err == nil {
 		t.Fatal("an oversize local file must be rejected")
 	}
+	if httpCalls != 0 {
+		t.Fatal("a file already known to be oversize must not be fetched again over HTTP")
+	}
 	// A rejected file stays on disk: it was never consumed.
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("stat = %v", err)
+	}
+}
+
+// The server's data directory holds one subdirectory per bot, named after that
+// bot's token, so Voicy does not mount it. An absolute path that cannot be read
+// is made relative again and fetched from the same server over HTTP.
+func TestDownloadFallsBackToHTTPWhenTheVolumeIsNotMounted(t *testing.T) {
+	var gotPath string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte("OVER-HTTP"))
+	})
+	got, err := c.DownloadFile(context.Background(),
+		"/var/lib/telegram-bot-api/SECRETTOKEN/voice/file_7.oga", 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "OVER-HTTP" {
+		t.Fatalf("body = %q", got)
+	}
+	if !strings.HasSuffix(gotPath, "/voice/file_7.oga") {
+		t.Fatalf("path = %q; the server root and token prefix must be stripped", gotPath)
+	}
+	if strings.Contains(strings.TrimSuffix(gotPath, "/voice/file_7.oga"), "var/lib") {
+		t.Fatalf("the absolute prefix leaked into the request: %q", gotPath)
+	}
+}
+
+func TestRelativeLocalPath(t *testing.T) {
+	for _, tc := range []struct{ path, token, want string }{
+		{"/var/lib/telegram-bot-api/123:ABC/voice/f.oga", "123:ABC", "voice/f.oga"},
+		{"/srv/tg/123:ABC/video_notes/f.mp4", "123:ABC", "video_notes/f.mp4"},
+		{"/somewhere/else/f.oga", "123:ABC", "/somewhere/else/f.oga"},
+		{"/var/lib/telegram-bot-api/123:ABC/voice/f.oga", "", "/var/lib/telegram-bot-api/123:ABC/voice/f.oga"},
+	} {
+		if got := relativeLocalPath(tc.path, tc.token); got != tc.want {
+			t.Fatalf("relativeLocalPath(%q) = %q, want %q", tc.path, got, tc.want)
+		}
 	}
 }
 
