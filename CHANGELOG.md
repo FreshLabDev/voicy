@@ -8,6 +8,26 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.10 - 2026-09-06
+
+Corrects how Voicy reads media from the self-hosted Bot API server, before that
+path is used in production.
+
+### Fixed
+
+- Files from a local Bot API server are fetched over the internal network
+  instead of a shared volume. The server's data directory holds one
+  subdirectory per bot, named after that bot's token, so mounting it would have
+  given Voicy every other bot's credentials. An absolute `file_path` is made
+  relative again and requested from the same server, which is what actually
+  lifts the 20 MB ceiling. Reading from disk is kept for a deployment that does
+  mount the directory, and a file already rejected as oversize is no longer
+  downloaded a second time over HTTP.
+
+### Operations
+
+- The WS04 stack joins `telegram_bot_api_net` and mounts nothing.
+
 ## v0.0.1-alpha.9 - 2026-09-06
 
 Operations release. Voicy can run against the fleet's self-hosted Bot API
