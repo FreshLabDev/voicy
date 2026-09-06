@@ -299,13 +299,14 @@ func (s *Store) peakHour(ctx context.Context, userID any) int {
 func (s *Store) TranscriptByToken(ctx context.Context, userID int64, token string) (Cached, bool, error) {
 	var row Cached
 	var turns []byte
+	var variant string
 	err := s.pool.QueryRow(ctx, `
 		SELECT t.file_id, t.kind, t.transcript, COALESCE(t.detected_language,''), COALESCE(t.confidence,0),
-		       COALESCE(t.duration_seconds,0), COALESCE(t.deepgram_request_id,''), t.word_count, t.speaker_turns
+		       COALESCE(t.duration_seconds,0), COALESCE(t.deepgram_request_id,''), t.word_count, t.speaker_turns, t.variant
 		FROM jobs j
 		JOIN transcripts t ON t.file_id=j.file_id AND t.variant=j.variant
 		WHERE j.telegram_user_id=$1 AND j.retrieval_token=$2 AND j.status='sent'`, userID, token).
-		Scan(&row.FileID, &row.Kind, &row.Transcript, &row.Language, &row.Confidence, &row.Duration, &row.RequestID, &row.WordCount, &turns)
+		Scan(&row.FileID, &row.Kind, &row.Transcript, &row.Language, &row.Confidence, &row.Duration, &row.RequestID, &row.WordCount, &turns, &variant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Cached{}, false, nil
 	}
@@ -317,7 +318,7 @@ func (s *Store) TranscriptByToken(ctx context.Context, userID int64, token strin
 			return Cached{}, false, fmt.Errorf("decode retrieved speaker turns: %w", err)
 		}
 	}
-	_, _ = s.pool.Exec(ctx, `UPDATE transcripts SET last_used_at=now() WHERE file_id=$1`, row.FileID)
+	_, _ = s.pool.Exec(ctx, `UPDATE transcripts SET last_used_at=now() WHERE file_id=$1 AND variant=$2`, row.FileID, variant)
 	return row, true, nil
 }
 
@@ -338,14 +339,28 @@ type HealthStatus struct {
 	Failed        int64 `json:"failed"`
 }
 
-func (s *Store) HealthStatus(ctx context.Context) (HealthStatus, error) {
+func (s *Store) HealthStatus(ctx context.Context, staleAfter time.Duration) (HealthStatus, error) {
 	var h HealthStatus
 	err := s.pool.QueryRow(ctx, `
 			SELECT COUNT(*) FILTER (WHERE status='received'),
-			       COUNT(*) FILTER (WHERE status='received' AND created_at < now() - interval '15 minutes'),
+			       COUNT(*) FILTER (WHERE status='received' AND created_at < now() - make_interval(secs => $1)),
 			       COUNT(*) FILTER (WHERE status='failed')
-			FROM jobs`).Scan(&h.Received, &h.StuckReceived, &h.Failed)
+			FROM jobs`, staleAfter.Seconds()).Scan(&h.Received, &h.StuckReceived, &h.Failed)
 	return h, err
+}
+
+// ReapStaleJobs fails jobs left in received after a crash or a killed process.
+// Without it a single interrupted transcription keeps jobs_stuck_received above
+// zero forever, which pins /healthz at 503 and the container at unhealthy: no
+// other path ever moves a received row to a terminal state.
+func (s *Store) ReapStaleJobs(ctx context.Context, staleAfter time.Duration) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE jobs SET status='failed', error_code='stale', finished_at=now()
+		WHERE status='received' AND created_at < now() - make_interval(secs => $1)`, staleAfter.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (s *Store) Cleanup(ctx context.Context, retention time.Duration) (int64, error) {

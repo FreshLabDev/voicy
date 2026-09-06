@@ -3,14 +3,15 @@ package bot
 
 import (
 	"context"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/FreshLabDev/voicy/internal/db"
 	"github.com/FreshLabDev/voicy/internal/decide"
@@ -23,7 +24,6 @@ import (
 
 const (
 	maxUpdateRetries       = 3
-	maxEphemeralCharacters = 4096
 	defaultMaxMediaBytes   = int64(20 << 20)
 	defaultMaxMediaSeconds = 3600
 )
@@ -53,14 +53,14 @@ type Telegram interface {
 	SetMyCommandsForScope(context.Context, []telegram.BotCommand, *telegram.BotCommandScope) error
 	SendMessage(context.Context, int64, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
 	SendEphemeralMessage(context.Context, int64, int64, int64, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
-	SendRichMarkdown(context.Context, int64, int64, int, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
-	SendEphemeralRichMarkdown(context.Context, int64, int64, int, string) (telegram.Message, error)
+	SendRichHTML(context.Context, int64, int64, int, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
 	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *telegram.InlineKeyboardMarkup) error
+	EditEphemeralRichHTML(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, body string, markup *telegram.InlineKeyboardMarkup) error
 	EditMessageText(context.Context, int64, int64, string, *telegram.InlineKeyboardMarkup) error
 	DeleteMessage(context.Context, int64, int64) error
 	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error
 	AnswerCallbackQuery(context.Context, string, string) error
-	SendChatAction(context.Context, int64, string) error
+	SendChatAction(context.Context, int64, int, string) error
 	GetFile(context.Context, string) (telegram.File, error)
 	DownloadFile(context.Context, string, int64) ([]byte, error)
 }
@@ -169,7 +169,11 @@ func (b *Bot) Run(ctx context.Context) error {
 	}
 	offset, err := b.store.Offset(ctx)
 	if err != nil {
-		return err
+		// Starting from 0 replays at most the updates Telegram still holds; every
+		// job is keyed on update_id, so a replay is deduplicated rather than
+		// duplicated. Refusing to start would be the worse failure.
+		b.log.Error("telegram offset load failed; starting from the oldest pending update", "error", err)
+		offset = 0
 	}
 	var pollFailures int
 	for ctx.Err() == nil {
@@ -218,12 +222,17 @@ func (b *Bot) Run(ctx context.Context) error {
 			if handleErr != nil {
 				b.log.Error("telegram update permanently failed; dropping", "update_id", upd.UpdateID, "attempts", maxUpdateRetries, "error", handleErr)
 				if err := b.store.FailUpdate(ctx, upd.UpdateID, "retry_exhausted"); err != nil {
-					return err
+					// The stale-job reaper closes this row later; losing the
+					// bookkeeping write is not a reason to stop serving users.
+					b.log.Error("failing update job failed", "update_id", upd.UpdateID, "error", err)
 				}
 			}
 			offset = upd.UpdateID + 1
 			if err := b.store.AdvanceOffset(ctx, offset); err != nil {
-				return err
+				// The in-memory offset still moves, so the loop makes progress.
+				// A restart before the next successful write replays this update,
+				// which CreateJob deduplicates on update_id.
+				b.log.Error("telegram offset persist failed", "offset", offset, "error", err)
 			}
 		}
 	}
@@ -240,8 +249,14 @@ func retryDelay(attempt int) time.Duration {
 	return time.Duration(1<<(attempt-1)) * time.Second
 }
 
+// jitterDuration spreads retries over +/-50% so concurrent replicas and repeated
+// failures of the same update do not line up on the same instant.
 func jitterDuration(d time.Duration) time.Duration {
-	return d
+	if d <= 0 {
+		return d
+	}
+	half := int64(d / 2)
+	return d - time.Duration(half) + time.Duration(rand.Int63n(2*half+1))
 }
 
 func waitContext(ctx context.Context, d time.Duration) bool {
@@ -282,6 +297,10 @@ func (b *Bot) Handle(ctx context.Context, upd telegram.Update) error {
 				return err
 			}
 		}
+	}
+	if act.Kind == decide.Membership {
+		b.log.Info("chat membership changed", "chat_id", act.ChatID, "chat_type", act.Chat.Type, "status", act.Arg)
+		return nil
 	}
 	lang := b.resolveLang(ctx, act)
 	switch act.Kind {
@@ -505,10 +524,11 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if act.Media == nil || act.Media.FileID == "" {
 		return nil
 	}
-	s, err := b.store.UserSettings(ctx, act.UserID)
+	raw, err := b.store.UserSettings(ctx, act.UserID)
 	if err != nil {
 		return err
 	}
+	s := raw.Normalized()
 	variant := s.Variant()
 	token, err := retrievalToken()
 	if err != nil {
@@ -529,7 +549,7 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if b.mediaTooLarge(act.Media.Duration, act.Media.FileSize) {
 		return b.failJob(ctx, job.ID, "media_limit", act, placeholderID, placeholderOK, transcript.TooLargeText(lang))
 	}
-	_ = b.tg.SendChatAction(ctx, act.ChatID, "typing")
+	_ = b.tg.SendChatAction(ctx, act.ChatID, act.ThreadID, "typing")
 
 	if cached, ok, err := b.store.GetCached(ctx, act.Media.FileID, variant); err != nil {
 		return err
@@ -565,16 +585,14 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 		ctype = "audio/ogg"
 	}
 
+	// s is already normalized, so these options match the variant the transcript
+	// is cached under.
 	opts := deepgram.Options{
 		SmartFormat:     s.SmartFormat,
 		Paragraphs:      s.Paragraphs,
 		FillerWords:     s.FillerWords,
 		ProfanityFilter: s.Profanity,
 		Diarize:         s.Diarize,
-	}
-	if opts.Diarize && !opts.Paragraphs {
-		// Speaker turns are returned on paragraph objects.
-		opts.Paragraphs = true
 	}
 	res, err := b.stt.Transcribe(ctx, audio, ctype, opts)
 	if err != nil {
@@ -599,7 +617,7 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 
 func retrievalToken() (string, error) {
 	raw := make([]byte, 18)
-	if _, err := rand.Read(raw); err != nil {
+	if _, err := cryptorand.Read(raw); err != nil {
 		return "", fmt.Errorf("generate retrieval token: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), nil
@@ -656,15 +674,17 @@ func (b *Bot) finishEphemeral(ctx context.Context, act decide.Action, placeholde
 func (b *Bot) deliver(ctx context.Context, act decide.Action, lang string, s settings.Settings, res deepgram.Result, token string, placeholderID int64, placeholderOK bool) error {
 	parts := transcript.RichParts(res, lang, s)
 	if act.Visibility == decide.Private && act.Chat.Type != "private" {
-		short := transcript.Format(res, lang, s)
-		if placeholderOK && utf8.RuneCountInString(short) <= maxEphemeralCharacters {
-			return b.finishEphemeral(ctx, act, placeholderID, short)
-		}
+		// Telegram accepts a new ephemeral message only within 15 seconds of the
+		// command that triggered it, and transcription has long outlived that
+		// window. Editing the placeholder is therefore the only private surface
+		// left, and Bot API 10.3 lets that edit carry a full rich transcript
+		// instead of the 4096 characters a plain text edit allows.
 		if placeholderOK && len(parts) == 1 {
-			if _, err := b.tg.SendEphemeralRichMarkdown(ctx, act.ChatID, act.EphemeralMessageID, act.ThreadID, parts[0]); err == nil {
-				_ = b.tg.DeleteEphemeralMessage(ctx, act.ChatID, act.UserID, placeholderID)
+			err := b.tg.EditEphemeralRichHTML(ctx, act.ChatID, act.UserID, placeholderID, parts[0], nil)
+			if err == nil {
 				return nil
 			}
+			b.log.Warn("ephemeral rich edit failed; trying direct message", "update_id", act.UpdateID, "error", err)
 		}
 		if err := b.sendRichParts(ctx, act.UserID, 0, 0, parts); err == nil {
 			if placeholderOK {
@@ -692,7 +712,18 @@ func (b *Bot) deliverStatus(ctx context.Context, act decide.Action, text string,
 
 func (b *Bot) sendRichParts(ctx context.Context, chatID, replyTo int64, threadID int, parts []string) error {
 	for _, part := range parts {
-		msg, err := b.tg.SendRichMarkdown(ctx, chatID, replyTo, threadID, part, nil)
+		msg, err := b.tg.SendRichHTML(ctx, chatID, replyTo, threadID, part, nil)
+		if err != nil {
+			// A group that turned into a supergroup mid-request answers with the
+			// new chat id. The reply target and topic belong to the old chat, so
+			// the retry drops both.
+			var apiErr *telegram.APIError
+			if errors.As(err, &apiErr) && apiErr.MigrateToChatID != 0 && apiErr.MigrateToChatID != chatID {
+				b.log.Info("chat migrated; resending", "from", chatID, "to", apiErr.MigrateToChatID)
+				chatID, replyTo, threadID = apiErr.MigrateToChatID, 0, 0
+				msg, err = b.tg.SendRichHTML(ctx, chatID, replyTo, threadID, part, nil)
+			}
+		}
 		if err != nil {
 			return err
 		}

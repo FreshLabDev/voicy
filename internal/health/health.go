@@ -12,7 +12,7 @@ import (
 )
 
 type Store interface {
-	HealthStatus(context.Context) (db.HealthStatus, error)
+	HealthStatus(context.Context, time.Duration) (db.HealthStatus, error)
 }
 
 type Build struct {
@@ -26,12 +26,21 @@ type Handler struct {
 	lastPoll    func() time.Time
 	initialized func() bool
 	startedAt   time.Time
+	staleAfter  time.Duration
 	build       Build
 	log         *slog.Logger
 }
 
-func New(store Store, lastPoll func() time.Time, initialized func() bool, startedAt time.Time, build Build, log *slog.Logger) *Handler {
-	return &Handler{store: store, lastPoll: lastPoll, initialized: initialized, startedAt: startedAt, build: build, log: log}
+// DefaultStaleAfter is the age at which a received job counts as stuck. It must
+// match the reaper interval in cmd/voicy so an interrupted job is failed instead
+// of holding the service unhealthy forever.
+const DefaultStaleAfter = 30 * time.Minute
+
+func New(store Store, lastPoll func() time.Time, initialized func() bool, startedAt time.Time, staleAfter time.Duration, build Build, log *slog.Logger) *Handler {
+	if staleAfter <= 0 {
+		staleAfter = DefaultStaleAfter
+	}
+	return &Handler{store: store, lastPoll: lastPoll, initialized: initialized, startedAt: startedAt, staleAfter: staleAfter, build: build, log: log}
 }
 
 type response struct {
@@ -52,7 +61,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	result := response{Version: h.build.Version, Commit: h.build.Commit, BuiltAt: h.build.Date}
-	status, err := h.store.HealthStatus(ctx)
+	status, err := h.store.HealthStatus(ctx, h.staleAfter)
 	if err != nil {
 		h.log.Error("health database check failed", "error", err)
 	} else {

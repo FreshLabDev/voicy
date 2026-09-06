@@ -19,16 +19,24 @@ receive a short callback toast.
 ## Delivery
 
 Public and DM transcripts use Bot API `sendRichMessage` with a
-`rich_message.markdown` payload. Reply and topic identifiers are preserved.
-The Bot API limit is 32,768 UTF-8 characters, so longer text is split at a
-paragraph or word boundary into independently valid, numbered Rich Markdown
-messages. No transcript is sent as a document.
+`rich_message.html` payload. The rendered transcript is HTML, and
+`InputRichMessage` accepts exactly one of `html`, `markdown`, or `blocks`; the
+`markdown` field would additionally parse GitHub-flavored Markdown and turn
+speech containing `*`, `_`, `#`, `|`, or list-like lines into formatting. Reply
+and topic identifiers are preserved. The Bot API limit is 32,768 UTF-8
+characters, so longer text is split at a paragraph or word boundary into
+independently valid, numbered rich messages. No transcript is sent as a
+document.
 
-For `/vp`, Voicy immediately creates an ephemeral placeholder. Results up to
-4,096 characters edit it directly. Longer single-part results use an ephemeral
-Rich Markdown reply and remove the placeholder. If Telegram rejects that path,
-Voicy tries the requester's DM. If the user has not opened the bot, the
-placeholder receives an owner-bound `/start transcript_<token>` deep link.
+For `/vp`, Voicy immediately creates an ephemeral placeholder, sent with the
+Bot API 10.3 `ephemeral_message_parameters` object. Telegram accepts a new
+ephemeral message only within 15 seconds of the command that triggered it, and
+transcription always outlives that window, so the result is delivered by
+editing the placeholder: `editEphemeralMessageText` carries a `rich_message`
+and therefore the full 32,768-character transcript. A transcript that needs
+more than one message goes to the requester's DM. If the user has not opened
+the bot, the placeholder receives an owner-bound `/start transcript_<token>`
+deep link.
 
 ## Cache and Settings
 
@@ -52,5 +60,5 @@ language is shared through Core and falls back to the Telegram profile hint.
 ## Message Safety
 
 Classic menu panels use Telegram HTML. Transcript and user-controlled text is
-escaped before it enters Rich Markdown or HTML wrappers. Errors shown to users
+escaped before it enters the rich HTML payload or HTML wrappers. Errors shown to users
 never include raw upstream payloads, tokens, keys, or full Bot API URLs.

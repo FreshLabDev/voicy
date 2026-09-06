@@ -26,7 +26,7 @@ func Format(res deepgram.Result, lang string, s settings.Settings) string {
 	return body
 }
 
-// RichParts renders one or more complete Rich Markdown messages. Every part is
+// RichParts renders one or more complete rich messages as HTML. Every part is
 // independently valid and stays under Telegram's 32768-character limit.
 func RichParts(res deepgram.Result, lang string, s settings.Settings) []string {
 	text := displayText(res, lang)
@@ -40,6 +40,11 @@ func RichParts(res deepgram.Result, lang string, s settings.Settings) []string {
 		budget = 1024
 	}
 	chunks := splitEscaped(text, budget, s.Quote)
+	if len(chunks) <= 1 {
+		// A transcript that fits one message needs no part label, which is
+		// exactly what Format renders.
+		return []string{Format(res, lang, s)}
+	}
 	parts := make([]string, 0, len(chunks))
 	for i, chunk := range chunks {
 		var prefix []string

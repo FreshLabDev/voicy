@@ -20,6 +20,7 @@ type Config struct {
 	TranscriptRetention time.Duration
 	MaxMediaBytes       int64
 	MaxMediaDuration    time.Duration
+	JobStaleAfter       time.Duration
 }
 
 func Load() (Config, error) {
@@ -43,6 +44,9 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxMediaDuration, err = time.ParseDuration(valueOrDefault("MAX_MEDIA_DURATION", "1h")); err != nil || cfg.MaxMediaDuration <= 0 {
 		return Config{}, fmt.Errorf("MAX_MEDIA_DURATION must be a positive duration")
+	}
+	if cfg.JobStaleAfter, err = time.ParseDuration(valueOrDefault("JOB_STALE_AFTER", "30m")); err != nil || cfg.JobStaleAfter <= 0 {
+		return Config{}, fmt.Errorf("JOB_STALE_AFTER must be a positive duration")
 	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")

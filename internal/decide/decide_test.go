@@ -218,3 +218,21 @@ func TestDecideLanguageOtherBotIgnored(t *testing.T) {
 		t.Fatal("expected ignore for @otherbot")
 	}
 }
+
+func TestDecideMyChatMemberIsMembership(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 90,
+	  "my_chat_member": {
+	    "chat": {"id": -100, "type": "supergroup", "title": "Team"},
+	    "from": {"id": 7, "is_bot": false, "first_name": "A", "language_code": "ru"},
+	    "new_chat_member": {"status": "member", "user": {"id": 1, "is_bot": true, "first_name": "Voicy"}}
+	  }
+	}`)
+	act := Decide(upd, "voicybot")
+	if act.Kind != Membership {
+		t.Fatalf("kind = %s", act.Kind)
+	}
+	if act.ChatID != -100 || act.UserID != 7 || act.Arg != "member" {
+		t.Fatalf("action = %+v", act)
+	}
+}

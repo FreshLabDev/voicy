@@ -41,7 +41,7 @@ func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	store, err := db.Connect(ctx, cfg.DatabaseURL)
+	store, err := connect(ctx, cfg.DatabaseURL, log)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func run(log *slog.Logger) error {
 
 	started := time.Now()
 	mux := http.NewServeMux()
-	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, health.Build{
+	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, cfg.JobStaleAfter, health.Build{
 		Version: version, Commit: commit, Date: date,
 	}, log))
 	srv := &http.Server{
@@ -85,6 +85,7 @@ func run(log *slog.Logger) error {
 		}
 	}()
 	go cleanupLoop(ctx, store, cfg.TranscriptRetention, log)
+	go reaperLoop(ctx, store, cfg.JobStaleAfter, log)
 
 	select {
 	case <-ctx.Done():
@@ -96,6 +97,56 @@ func run(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// connect retries the first PostgreSQL connection. Container DNS inside the
+// shared core_net is not always resolvable the instant the process starts, and
+// exiting there turns a two-second blip into a restart loop.
+func connect(ctx context.Context, url string, log *slog.Logger) (*db.Store, error) {
+	const maxAttempts = 8
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		store, err := db.Connect(ctx, url)
+		if err == nil {
+			return store, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		delay := time.Duration(1<<min(attempt-1, 4)) * time.Second
+		log.Warn("database connect failed; retrying", "attempt", attempt, "retry_in", delay, "error", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return nil, lastErr
+}
+
+// reaperLoop closes jobs abandoned by a crashed or killed process. Nothing else
+// moves a received row to a terminal state, so without this one interrupted
+// transcription would hold /healthz at 503 for the life of the deployment.
+func reaperLoop(ctx context.Context, store *db.Store, staleAfter time.Duration, log *slog.Logger) {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		reapCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		reaped, err := store.ReapStaleJobs(reapCtx, staleAfter)
+		cancel()
+		switch {
+		case err != nil:
+			log.Warn("stale job reaper failed", "error", err)
+		case reaped > 0:
+			log.Warn("failed stale jobs", "count", reaped, "stale_after", staleAfter.String())
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func cleanupLoop(ctx context.Context, store *db.Store, retention time.Duration, log *slog.Logger) {

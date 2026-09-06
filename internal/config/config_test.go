@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadRequiresSecrets(t *testing.T) {
 	t.Setenv("TELEGRAM_BOT_TOKEN", "")
@@ -40,5 +43,24 @@ func TestLoadRejectsInvalidMediaLimits(t *testing.T) {
 	t.Setenv("MAX_MEDIA_DURATION", "nope")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected invalid MAX_MEDIA_DURATION")
+	}
+}
+
+func TestJobStaleAfterDefaultsAndValidates(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "t")
+	t.Setenv("DEEPGRAM_API_KEY", "k")
+	t.Setenv("DATABASE_URL", "postgres://localhost/voicy")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.JobStaleAfter != 30*time.Minute {
+		t.Fatalf("JobStaleAfter = %s", cfg.JobStaleAfter)
+	}
+
+	t.Setenv("JOB_STALE_AFTER", "-5m")
+	if _, err := Load(); err == nil {
+		t.Fatal("a non-positive JOB_STALE_AFTER must be rejected")
 	}
 }

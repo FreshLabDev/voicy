@@ -27,8 +27,8 @@ surface. PostgreSQL is its only durable store.
 6. On a miss, Voicy enforces duration and size limits, downloads bounded bytes,
    and calls Deepgram `POST /v1/listen`.
 7. The transcript and optional speaker turns are cached.
-8. Delivery uses `sendRichMessage`. Each complete Rich Markdown part is at
-   most 32,768 characters and preserves replies and topics.
+8. Delivery uses `sendRichMessage` with an HTML `rich_message`. Each complete
+   part is at most 32,768 characters and preserves replies and topics.
 9. The terminal job transition and user-stat increment commit together.
 
 Empty and failed jobs are retained for operations but never increment user
@@ -37,12 +37,18 @@ are deleted by the hourly cleanup loop.
 
 ## Reliability
 
+- The first PostgreSQL connection is retried with backoff, so container DNS
+  that is not ready at start does not become a restart loop.
 - Telegram initialization retries until `deleteWebhook`, `getMe`, and both
   command scopes succeed.
 - An update is retried three times before its received job is failed and its
   offset advances. Settings callbacks carry the desired value, so replay is
   idempotent.
-- Poll offsets only move forward.
+- Poll offsets only move forward. A failed offset or job write is logged and
+  the loop continues: `update_id` keys every job, so a replay is deduplicated.
+- A job left in `received` past `JOB_STALE_AFTER` is failed by the reaper. The
+  same threshold drives the stuck-job field in `/healthz`, so an interrupted
+  transcription cannot hold the service unhealthy forever.
 - Deepgram and Telegram bodies have explicit size limits and timeouts.
 - `/healthz` is unhealthy until Telegram initialization succeeds, polling is
   fresh, PostgreSQL responds, and no received job is stuck for 15 minutes.
@@ -65,4 +71,4 @@ Markdown when possible, then DM, then an owner-bound deep link as recovery.
 - `internal/health`: readiness and liveness contract.
 - `internal/settings`: settings registry and cache variants.
 - `internal/telegram`: Bot API HTTP transport.
-- `internal/transcript`: localized panels, Rich Markdown, splitting, stats.
+- `internal/transcript`: localized panels, rich HTML, splitting, stats.
