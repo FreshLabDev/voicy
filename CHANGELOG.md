@@ -8,6 +8,26 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.10 - 2026-09-06
+
+Corrects how Voicy reads media from the self-hosted Bot API server, before that
+path is used in production.
+
+### Fixed
+
+- Files from a local Bot API server are fetched over the internal network
+  instead of a shared volume. The server's data directory holds one
+  subdirectory per bot, named after that bot's token, so mounting it would have
+  given Voicy every other bot's credentials. An absolute `file_path` is made
+  relative again and requested from the same server, which is what actually
+  lifts the 20 MB ceiling. Reading from disk is kept for a deployment that does
+  mount the directory, and a file already rejected as oversize is no longer
+  downloaded a second time over HTTP.
+
+### Operations
+
+- The WS04 stack joins `telegram_bot_api_net` and mounts nothing.
+
 ## v0.0.1-alpha.9 - 2026-09-06
 
 Operations release. Voicy can run against the fleet's self-hosted Bot API
@@ -19,11 +39,8 @@ can no longer send the same transcript twice.
 - `TELEGRAM_API_BASE` selects the Bot API server, defaulting to Telegram's own.
   Pointed at the shared self-hosted server, `getFile` is no longer capped at
   20 MB. That server runs with `TELEGRAM_LOCAL` and answers with an absolute
-  path in its data directory. Voicy makes the path relative again and fetches
-  it over the internal network rather than mounting that directory, which holds
-  one subdirectory per bot named after that bot's token. Where the directory is
-  mounted anyway, the bytes are read from disk and the file is deleted, because
-  a local server never reclaims them.
+  path in its data directory, so Voicy reads the bytes from the mounted volume
+  and deletes the file afterwards: a local server never reclaims them itself.
 - `/metrics` serves process counters in Prometheus text exposition format,
   covering what never becomes a job row: polling failures, cache hits and
   misses, Deepgram retries, Telegram rate limits and errors by method, job
@@ -52,9 +69,8 @@ can no longer send the same transcript twice.
 - Moving a token to a self-hosted server requires calling `logOut` on the cloud
   server first. Telegram then refuses to log back in to the cloud for ten
   minutes, so the switch back is not instant.
-- The WS04 stack now also joins `telegram_bot_api_net`. It deliberately does
-  not mount the Bot API server's data directory: those subdirectories are named
-  after each bot's token.
+- The WS04 stack now also joins `telegram_bot_api_net` and mounts the Bot API
+  server's data directory.
 
 ## v0.0.1-alpha.8 - 2026-09-06
 
