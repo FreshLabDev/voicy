@@ -19,8 +19,12 @@ surface. PostgreSQL is its only durable store.
 
 ## Data Flow
 
-1. Long polling returns an update.
-2. `internal/decide` classifies it without I/O.
+1. Long polling returns a batch of updates.
+2. The batch is fanned out across `MAX_CONCURRENT_JOBS` workers. Updates from
+   one person run in arrival order on a single worker, so two voices cannot
+   race for the same job row or arrive reordered. The batch is a barrier: the
+   poll offset advances only after all of it is finished.
+3. `internal/decide` classifies each update without I/O.
 3. `core.touch` records identity and presence before domain writes.
 4. A job row is created idempotently for the Telegram `update_id`.
 5. A `(file_id, variant)` cache hit skips Telegram download and Deepgram.
@@ -49,7 +53,11 @@ are deleted by the hourly cleanup loop.
 - A job left in `received` past `JOB_STALE_AFTER` is failed by the reaper. The
   same threshold drives the stuck-job field in `/healthz`, so an interrupted
   transcription cannot hold the service unhealthy forever.
-- Deepgram and Telegram bodies have explicit size limits and timeouts.
+- Deepgram and Telegram bodies have explicit size limits and timeouts. A
+  Deepgram request is retried on 408, 429, and 5xx, and its deadline scales
+  with the length of the audio.
+- Statistics are served from an in-memory snapshot cache, so the peak-hour
+  histogram cannot be triggered once per tab tap.
 - `/healthz` is unhealthy until Telegram initialization succeeds, polling is
   fresh, PostgreSQL responds, and no received job is stuck for 15 minutes.
 
@@ -62,7 +70,8 @@ Markdown when possible, then DM, then an owner-bound deep link as recovery.
 
 ## Packages
 
-- `cmd/voicy`: wiring, cleanup loop, HTTP server, shutdown.
+- `cmd/voicy`: wiring, cleanup and reaper loops, HTTP server, shutdown.
+- `internal/httpx`: the tuned HTTP transport shared by Telegram and Deepgram.
 - `internal/bot`: handlers, retries, cache and delivery orchestration.
 - `internal/config`: validated environment configuration.
 - `internal/db`: migrations, jobs, cache, settings, statistics.

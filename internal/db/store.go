@@ -18,7 +18,24 @@ import (
 )
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	statsTZ string
+}
+
+// SetStatsTimezone chooses the zone the peak-hour histogram is bucketed in.
+// PostgreSQL resolves the name; an unknown zone makes the query error and the
+// peak hour is simply reported as unknown.
+func (s *Store) SetStatsTimezone(tz string) {
+	if tz != "" {
+		s.statsTZ = tz
+	}
+}
+
+func (s *Store) timezone() string {
+	if s.statsTZ == "" {
+		return "Europe/Kyiv"
+	}
+	return s.statsTZ
 }
 
 func Connect(ctx context.Context, databaseURL string) (*Store, error) {
@@ -281,11 +298,11 @@ func (s *Store) GlobalStats(ctx context.Context) (stats.Snapshot, error) {
 
 func (s *Store) peakHour(ctx context.Context, userID any) int {
 	query := `
-		SELECT EXTRACT(HOUR FROM finished_at AT TIME ZONE 'Europe/Kyiv')::int
+		SELECT EXTRACT(HOUR FROM finished_at AT TIME ZONE $1)::int
 		FROM jobs WHERE status='sent'`
-	args := []any{}
+	args := []any{s.timezone()}
 	if userID != nil {
-		query += ` AND telegram_user_id=$1`
+		query += ` AND telegram_user_id=$2`
 		args = append(args, userID)
 	}
 	query += ` GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 1`

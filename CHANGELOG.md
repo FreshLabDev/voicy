@@ -8,6 +8,60 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.8 - 2026-09-06
+
+Throughput release. Voicy now transcribes for several people at once, survives a
+flaky Deepgram, stops rescanning the jobs table for every statistics tap, and
+shows the user that something is happening.
+
+### Changed
+
+- A poll batch is handled by a pool of workers instead of one update at a time.
+  A single long recording used to block every other user in every other chat.
+  Updates from the same person still run in arrival order on one worker, and the
+  poll offset advances only once the whole batch is finished, so an in-flight
+  update is never confirmed to Telegram.
+- A direct chat answers a cache miss immediately with "Transcribing…", keeps the
+  typing indicator alive while it works, and edits that message into the
+  transcript. A single chat action expires after five seconds, so long
+  recordings previously showed nothing at all. A cache hit skips the
+  placeholder.
+- Statistics are served from an in-memory snapshot cache with a background
+  refresh. The peak-hour histogram scans the jobs table, and the My/All tabs are
+  one tap apart, so idle toggling was a stream of full scans.
+- Telegram and Deepgram share one tuned HTTP transport. Go's default of two idle
+  connections per host would have serialized the new concurrency.
+
+### Fixed
+
+- Deepgram requests are retried on 408, 429, and 5xx, with jittered backoff and
+  respect for `Retry-After`. Production answered the same video circle with
+  HTTP 408 twice and gave up both times.
+- A Deepgram request deadline now scales with the length of the audio. The fixed
+  two-minute client timeout could not be met at `MAX_MEDIA_DURATION=1h`.
+- A failed Deepgram call reports the `dg-request-id` and Deepgram's own reason
+  instead of a bare status code.
+- A failure in a direct chat replaces the placeholder rather than leaving
+  "Transcribing…" stranded above a separate error message.
+
+### Added
+
+- `MAX_CONCURRENT_JOBS` (default `4`) bounds how many updates are handled at
+  once.
+- `STATS_CACHE_TTL` (default `5m`) and `STATS_TIMEZONE` (default `Europe/Kyiv`),
+  which was previously hardcoded in the peak-hour query.
+
+### Migrations
+
+- `migrations/003_stats_index.sql` adds two partial indexes on `jobs` for sent
+  rows, so the peak-hour query stops being a sequential scan.
+
+### Operations
+
+- All three new variables are optional and default to today's behavior.
+- The migration is two `CREATE INDEX IF NOT EXISTS` statements and is safe to
+  apply on a running deployment.
+
 ## v0.0.1-alpha.7 - 2026-09-06
 
 Voicy now speaks the Bot API 10.3 ephemeral contract, sends transcripts as rich

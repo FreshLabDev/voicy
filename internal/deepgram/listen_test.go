@@ -134,3 +134,83 @@ func TestListenFileZeroOptionsStayZero(t *testing.T) {
 		t.Fatalf("zero options must reach the wire, got %q", gotQuery)
 	}
 }
+
+// Production answered the same video circle with HTTP 408 twice and gave up
+// both times, because there was no retry at all.
+func TestListenFileRetriesTransientFailures(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.Header().Set("dg-request-id", "req-408")
+			w.WriteHeader(http.StatusRequestTimeout)
+			_, _ = w.Write([]byte(`{"err_msg":"upstream timed out"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"metadata":{"request_id":"r9","duration":1},"results":{"channels":[{"alternatives":[{"transcript":"third time"}]}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := New("k")
+	c.SetRESTBase(srv.URL)
+	c.SetHTTP(srv.Client())
+	got, err := c.ListenFile(context.Background(), []byte("OGG"), "", DefaultOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d", attempts)
+	}
+	if got.Text != "third time" {
+		t.Fatalf("text = %q", got.Text)
+	}
+}
+
+func TestListenFileDoesNotRetryClientErrors(t *testing.T) {
+	var attempts int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("dg-request-id", "req-400")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"err_msg":"unsupported media type"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := New("k")
+	c.SetRESTBase(srv.URL)
+	c.SetHTTP(srv.Client())
+	_, err := c.ListenFile(context.Background(), []byte("OGG"), "", DefaultOptions)
+	if err == nil {
+		t.Fatal("a 400 must not be reported as success")
+	}
+	if attempts != 1 {
+		t.Fatalf("a permanent error must not be retried, attempts = %d", attempts)
+	}
+	// The message has to name the request id and Deepgram's own reason, or a
+	// production failure cannot be chased anywhere.
+	for _, want := range []string{"400", "req-400", "unsupported media type"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q is missing %q", err, want)
+		}
+	}
+}
+
+func TestRequestTimeoutScalesWithAudio(t *testing.T) {
+	if got := requestTimeout(0); got != baseTimeout {
+		t.Fatalf("unknown length = %s", got)
+	}
+	if got := requestTimeout(600); got <= baseTimeout {
+		t.Fatalf("ten minutes of audio = %s, want more than the base", got)
+	}
+	if got := requestTimeout(24 * 3600); got != maxTimeout {
+		t.Fatalf("absurd length must clamp, got %s", got)
+	}
+}
+
+// AudioSeconds sizes the deadline and must never reach the wire: a query change
+// would silently split the transcript cache.
+func TestAudioSecondsStaysOutOfTheQuery(t *testing.T) {
+	opts := DefaultOptions
+	opts.AudioSeconds = 4242
+	if strings.Contains(restQuery(opts), "4242") {
+		t.Fatalf("query leaked the duration hint: %s", restQuery(opts))
+	}
+}

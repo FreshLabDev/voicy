@@ -4,18 +4,34 @@ package deepgram
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/FreshLabDev/voicy/internal/httpx"
 )
 
 const (
 	DefaultREST = "https://api.deepgram.com"
 	ListenPath  = "/v1/listen"
 	maxResponse = 8 << 20
+
+	// maxAttempts covers one transient Deepgram failure plus a retry. Production
+	// has seen the same file answered with HTTP 408 twice in a row with no retry
+	// at all, which surfaced to the user as a plain "could not transcribe".
+	maxAttempts = 3
+
+	// A request deadline has to scale with the audio: at MAX_MEDIA_DURATION=1h a
+	// fixed two-minute client timeout cannot be met by any model.
+	baseTimeout     = 90 * time.Second
+	timeoutPerAudio = 5 // one second of budget per this many seconds of audio
+	maxTimeout      = 10 * time.Minute
 )
 
 type Client struct {
@@ -25,10 +41,12 @@ type Client struct {
 }
 
 func New(apiKey string) *Client {
+	// No client-level timeout: every attempt carries its own context deadline,
+	// sized from the audio length.
 	return &Client{
 		apiKey: apiKey,
 		rest:   DefaultREST,
-		http:   &http.Client{Timeout: 2 * time.Minute},
+		http:   httpx.New(),
 	}
 }
 
@@ -46,6 +64,10 @@ type Options struct {
 	FillerWords     bool
 	ProfanityFilter bool
 	Diarize         bool
+
+	// AudioSeconds sizes the request deadline. It is a client-side hint only:
+	// restQuery never sends it, so it can never change a cache variant.
+	AudioSeconds int
 }
 
 // DefaultOptions mirrors the option set used before per-user settings existed
@@ -78,6 +100,62 @@ func boolParam(b bool) string {
 	return "false"
 }
 
+// APIError is a non-2xx answer from Deepgram, carrying the identifiers needed to
+// chase a failure in Deepgram's own console.
+type APIError struct {
+	StatusCode int
+	RequestID  string
+	Detail     string
+	RetryAfter time.Duration
+}
+
+func (e *APIError) Error() string {
+	msg := "deepgram listen HTTP " + strconv.Itoa(e.StatusCode)
+	if e.RequestID != "" {
+		msg += " (request " + e.RequestID + ")"
+	}
+	if e.Detail != "" {
+		msg += ": " + e.Detail
+	}
+	return msg
+}
+
+// retryable reports whether another attempt can plausibly succeed. 408 and 429
+// are explicitly included: both are what a busy Deepgram returns for work that
+// would have completed on a second try.
+func retryable(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusRequestTimeout ||
+			apiErr.StatusCode == http.StatusTooManyRequests ||
+			apiErr.StatusCode >= 500
+	}
+	// Transport failures and deadlines of a single attempt are worth repeating;
+	// a cancelled parent context is not.
+	return !errors.Is(err, context.Canceled)
+}
+
+// requestTimeout scales the per-attempt deadline with the length of the audio.
+func requestTimeout(audioSeconds int) time.Duration {
+	if audioSeconds <= 0 {
+		return baseTimeout
+	}
+	d := baseTimeout + time.Duration(audioSeconds/timeoutPerAudio)*time.Second
+	if d > maxTimeout {
+		return maxTimeout
+	}
+	return d
+}
+
+func backoff(attempt int) time.Duration {
+	d := time.Second << (attempt - 1)
+	if d > 8*time.Second {
+		d = 8 * time.Second
+	}
+	half := int64(d / 2)
+	return d - time.Duration(half) + time.Duration(rand.Int63n(2*half+1))
+}
+
 func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType string, opts Options) (Result, error) {
 	if len(audio) == 0 {
 		return Result{}, fmt.Errorf("empty audio")
@@ -85,10 +163,36 @@ func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType strin
 	if contentType == "" {
 		contentType = "audio/ogg"
 	}
+	timeout := requestTimeout(opts.AudioSeconds)
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		res, err := c.listenOnce(ctx, audio, contentType, opts, timeout)
+		if err == nil {
+			return res, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil || attempt == maxAttempts || !retryable(err) {
+			return Result{}, err
+		}
+		delay := backoff(attempt)
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {
+			delay = apiErr.RetryAfter
+		}
+		if err := c.sleep(ctx, delay); err != nil {
+			return Result{}, lastErr
+		}
+	}
+	return Result{}, lastErr
+}
+
+func (c *Client) listenOnce(ctx context.Context, audio []byte, contentType string, opts Options, timeout time.Duration) (Result, error) {
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	// A zero Options is legitimate "everything off": substituting defaults
 	// here would desync the request from the cache variant it is saved under.
 	endpoint := c.rest + ListenPath + "?" + restQuery(opts)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(audio))
+	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, endpoint, bytes.NewReader(audio))
 	if err != nil {
 		return Result{}, redact(c.apiKey, err)
 	}
@@ -101,15 +205,47 @@ func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType strin
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
 	if err != nil {
-		return Result{}, err
+		return Result{}, redact(c.apiKey, err)
 	}
 	if len(body) > maxResponse {
 		return Result{}, fmt.Errorf("deepgram listen response exceeds %d bytes", maxResponse)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Result{}, fmt.Errorf("deepgram listen HTTP %d", resp.StatusCode)
+		return Result{}, apiError(resp, body)
 	}
 	return ExtractPrerecorded(body)
+}
+
+// apiError keeps the Deepgram request id and a bounded slice of the body. The
+// body is Deepgram's own error text, never audio and never a transcript.
+func apiError(resp *http.Response, body []byte) *APIError {
+	out := &APIError{
+		StatusCode: resp.StatusCode,
+		RequestID:  resp.Header.Get("dg-request-id"),
+	}
+	if detail := strings.TrimSpace(string(body)); detail != "" {
+		if len(detail) > 200 {
+			detail = detail[:200]
+		}
+		out.Detail = strings.Join(strings.Fields(detail), " ")
+	}
+	if raw := resp.Header.Get("Retry-After"); raw != "" {
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 && secs <= 60 {
+			out.RetryAfter = time.Duration(secs) * time.Second
+		}
+	}
+	return out
+}
+
+func (c *Client) sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (c *Client) Transcribe(ctx context.Context, audio []byte, contentType string, opts Options) (Result, error) {
