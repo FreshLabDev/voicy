@@ -26,6 +26,7 @@ type fakeStore struct {
 	saved     []string
 	savedVar  []string
 	jobs      map[int64]string
+	delivered map[int64]bool
 	successes int
 	touched   int
 	offset    int64
@@ -80,10 +81,20 @@ func (f *fakeStore) CreateJob(_ context.Context, updateID, _, _, _ int64, _, _, 
 		f.jobs = map[int64]string{}
 	}
 	if st, ok := f.jobs[updateID]; ok {
-		return db.Job{ID: updateID, Status: st, RetrievalToken: token}, nil
+		return db.Job{ID: updateID, Status: st, RetrievalToken: token, Delivered: f.delivered[updateID]}, nil
 	}
 	f.jobs[updateID] = "received"
 	return db.Job{ID: updateID, Status: "received", RetrievalToken: token}, nil
+}
+
+func (f *fakeStore) MarkDelivered(_ context.Context, id int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.delivered == nil {
+		f.delivered = map[int64]bool{}
+	}
+	f.delivered[id] = true
+	return nil
 }
 func (f *fakeStore) CompleteJob(_ context.Context, id int64, status, _ string, _ bool, res deepgram.Result) error {
 	f.mu.Lock()
@@ -989,4 +1000,74 @@ func itoa64(n int64) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// Delivery and completion are separate writes. When the database fails between
+// them the update is retried, and without the delivered_at guard the user gets
+// the same transcript twice.
+func TestRetryAfterDeliveryDoesNotResend(t *testing.T) {
+	st := &fakeStore{}
+	tg := &fakeTG{}
+	stt := &countingSTT{res: deepgram.Result{Text: "only once", WordCount: 2}}
+	b := New(st, tg, stt, logger())
+	b.self = "voicetextbot"
+	upd := parseUpd(t, `{
+	  "update_id": 70,
+	  "message": {
+	    "message_id": 20,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": -100, "type": "supergroup"},
+	    "text": "/v",
+	    "reply_to_message": {"message_id": 19, "voice": {"file_id": "DUP", "file_unique_id": "UDUP", "duration": 4}}
+	  }
+	}`)
+	if err := b.Handle(context.Background(), upd); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the completion write having been lost: the job is still received
+	// but delivery was already recorded.
+	st.mu.Lock()
+	st.jobs[70] = "received"
+	st.mu.Unlock()
+
+	if err := b.Handle(context.Background(), upd); err != nil {
+		t.Fatal(err)
+	}
+	if got := tg.transcriptParts(); len(got) != 1 {
+		t.Fatalf("the retry resent the transcript: %v", got)
+	}
+	if stt.calls != 1 {
+		t.Fatalf("the retry called Deepgram again, calls = %d", stt.calls)
+	}
+	st.mu.Lock()
+	status := st.jobs[70]
+	st.mu.Unlock()
+	if status != "sent" {
+		t.Fatalf("the retry must still close the job, status = %q", status)
+	}
+}
+
+// A job whose transcript was delivered but never completed must not be retried
+// as if nothing happened once it reaches a terminal state.
+func TestTerminalJobIsNeverReprocessed(t *testing.T) {
+	st := &fakeStore{jobs: map[int64]string{71: "sent"}}
+	tg := &fakeTG{}
+	stt := &countingSTT{res: deepgram.Result{Text: "x"}}
+	b := New(st, tg, stt, logger())
+	b.self = "voicetextbot"
+	upd := parseUpd(t, `{
+	  "update_id": 71,
+	  "message": {
+	    "message_id": 21,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": 7, "type": "private"},
+	    "voice": {"file_id": "TERM", "file_unique_id": "UT", "duration": 2}
+	  }
+	}`)
+	if err := b.Handle(context.Background(), upd); err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.transcriptParts()) != 0 || stt.calls != 0 {
+		t.Fatalf("a terminal job must be a no-op, parts=%v calls=%d", tg.transcriptParts(), stt.calls)
+	}
 }

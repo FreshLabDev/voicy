@@ -53,6 +53,14 @@ go vet ./...
 docker compose config
 ```
 
+The database tests need a real PostgreSQL and a disposable database whose name
+contains `test`; they refuse to run anywhere else:
+
+```sh
+VOICY_TEST_DATABASE_URL=postgres://voicy:voicy@localhost:5432/voicy_test?sslmode=disable \
+  go test -tags=integration ./internal/db/
+```
+
 CI also runs `go mod verify`, `go test -race ./...`, Docker build, Compose
 validation, and `govulncheck`.
 
@@ -65,6 +73,8 @@ validation, and `govulncheck`.
 - A repeated `file_id` is served from cache.
 - Empty and failed jobs do not increment `user_stats`.
 - `/healthz` reports database and Telegram polling freshness.
+- `/metrics` renders without error and names every counter `voicy_*_total`.
+- A retried update never sends the same transcript twice.
 
 ## License
 

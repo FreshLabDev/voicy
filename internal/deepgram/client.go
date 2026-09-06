@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FreshLabDev/voicy/internal/httpx"
+	"github.com/FreshLabDev/voicy/internal/metrics"
 )
 
 const (
@@ -174,6 +175,7 @@ func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType strin
 		if ctx.Err() != nil || attempt == maxAttempts || !retryable(err) {
 			return Result{}, err
 		}
+		metrics.DeepgramRetries.Inc()
 		delay := backoff(attempt)
 		var apiErr *APIError
 		if errors.As(err, &apiErr) && apiErr.RetryAfter > 0 {

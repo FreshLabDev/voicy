@@ -8,6 +8,50 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.9 - 2026-09-06
+
+Operations release. Voicy can run against the fleet's self-hosted Bot API
+server, exposes process counters, proves its SQL against a real PostgreSQL, and
+can no longer send the same transcript twice.
+
+### Added
+
+- `TELEGRAM_API_BASE` selects the Bot API server, defaulting to Telegram's own.
+  Pointed at the shared self-hosted server, `getFile` is no longer capped at
+  20 MB. That server runs with `TELEGRAM_LOCAL` and answers with an absolute
+  path in its data directory, so Voicy reads the bytes from the mounted volume
+  and deletes the file afterwards: a local server never reclaims them itself.
+- `/metrics` serves process counters in Prometheus text exposition format,
+  covering what never becomes a job row: polling failures, cache hits and
+  misses, Deepgram retries, Telegram rate limits and errors by method, job
+  failures by stage, and audio seconds sent.
+- Database tests that run against a real PostgreSQL, covering job idempotency,
+  the atomic completion-and-statistics transaction, cache variants, the stale
+  job reaper, owner-bound deep links, and retention. They require a disposable
+  database whose name contains `test` and refuse to run anywhere else. CI runs
+  them against a PostgreSQL 17 service, and a release is now gated on them.
+
+### Fixed
+
+- A transcript is delivered at most once per update. Delivery and the terminal
+  transition are two writes, and a database failure between them made the
+  update retry and send the same text again. Delivery is now recorded on the
+  job as soon as it succeeds, and a retry closes the job instead of resending.
+
+### Migrations
+
+- `migrations/004_job_delivery.sql` adds `jobs.delivered_at`.
+
+### Operations
+
+- `TELEGRAM_API_BASE` is optional and defaults to the cloud server, so an
+  existing deployment is unaffected until it is set.
+- Moving a token to a self-hosted server requires calling `logOut` on the cloud
+  server first. Telegram then refuses to log back in to the cloud for ten
+  minutes, so the switch back is not instant.
+- The WS04 stack now also joins `telegram_bot_api_net` and mounts the Bot API
+  server's data directory.
+
 ## v0.0.1-alpha.8 - 2026-09-06
 
 Throughput release. Voicy now transcribes for several people at once, survives a
