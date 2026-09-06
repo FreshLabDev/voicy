@@ -21,6 +21,7 @@ const (
 	Nudge      Kind = "nudge"
 	Callback   Kind = "callback"
 	Language   Kind = "language"
+	Membership Kind = "membership"
 )
 
 type Visibility string
@@ -61,6 +62,21 @@ type Action struct {
 }
 
 func Decide(upd telegram.Update, selfUsername string) Action {
+	// my_chat_member is requested in allowed_updates so the shared core learns
+	// where Voicy lives. It never produces a message: groups stay quiet.
+	if upd.MyChatMember != nil {
+		m := upd.MyChatMember
+		return Action{
+			Kind:         Membership,
+			ChatID:       m.Chat.ID,
+			UserID:       m.From.ID,
+			User:         m.From,
+			Chat:         m.Chat,
+			LanguageCode: m.From.LanguageCode,
+			Arg:          m.NewChatMember.Status,
+			UpdateID:     upd.UpdateID,
+		}
+	}
 	if upd.Callback != nil {
 		from := upd.Callback.From
 		return Action{

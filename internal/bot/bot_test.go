@@ -142,6 +142,7 @@ type fakeTG struct {
 	downloaded     int
 	gotFile        int
 	calls          []string
+	richErr        error
 }
 
 func (f *fakeTG) DeleteWebhook(context.Context) error                               { return nil }
@@ -166,16 +167,21 @@ func (f *fakeTG) SendEphemeralMessage(_ context.Context, _, _, _ int64, text str
 	f.ephemeral = append(f.ephemeral, text)
 	return telegram.Message{MessageID: 501, EphemeralMessageID: 501}, nil
 }
-func (f *fakeTG) SendRichMarkdown(_ context.Context, chatID, _ int64, _ int, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
 	f.calls = append(f.calls, "sendRich")
+	if f.richErr != nil {
+		err := f.richErr
+		f.richErr = nil
+		return telegram.Message{}, err
+	}
 	f.sent = append(f.sent, text)
 	f.richChats = append(f.richChats, chatID)
 	return telegram.Message{MessageID: int64(len(f.sent))}, nil
 }
-func (f *fakeTG) SendEphemeralRichMarkdown(_ context.Context, _ int64, _ int64, _ int, text string) (telegram.Message, error) {
-	f.calls = append(f.calls, "sendEphemeralRich")
+func (f *fakeTG) EditEphemeralRichHTML(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
+	f.calls = append(f.calls, "editEphemeralRich")
 	f.ephemeralRich = append(f.ephemeralRich, text)
-	return telegram.Message{EphemeralMessageID: int64(len(f.ephemeralRich))}, nil
+	return nil
 }
 func (f *fakeTG) EditEphemeralMessageText(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
 	f.calls = append(f.calls, "editEphemeral")
@@ -203,7 +209,7 @@ func (f *fakeTG) AnswerCallbackQuery(_ context.Context, _, text string) error {
 	f.answered = append(f.answered, text)
 	return nil
 }
-func (f *fakeTG) SendChatAction(context.Context, int64, string) error { return nil }
+func (f *fakeTG) SendChatAction(context.Context, int64, int, string) error { return nil }
 func (f *fakeTG) GetFile(context.Context, string) (telegram.File, error) {
 	f.gotFile++
 	return telegram.File{FilePath: "voice/x.ogg"}, nil
@@ -352,20 +358,23 @@ func TestHandleGroupVPPlaceholderThenEdit(t *testing.T) {
 	if len(tg.ephemeral) != 1 || tg.ephemeral[0] != transcript.WorkingText("en") {
 		t.Fatalf("placeholder = %v", tg.ephemeral)
 	}
-	if len(tg.ephemeralEdits) != 1 || !contains(tg.ephemeralEdits[0], "secret") {
-		t.Fatalf("edits = %v", tg.ephemeralEdits)
+	if len(tg.ephemeralRich) != 1 || !contains(tg.ephemeralRich[0], "secret") {
+		t.Fatalf("rich edits = %v", tg.ephemeralRich)
 	}
 	if len(tg.calls) < 1 || tg.calls[0] != "sendEphemeral" {
 		t.Fatalf("placeholder must be first telegram write, calls=%v", tg.calls)
 	}
 	var sawEdit bool
 	for _, c := range tg.calls {
-		if c == "editEphemeral" {
+		if c == "editEphemeralRich" {
 			sawEdit = true
 		}
 	}
 	if !sawEdit {
-		t.Fatalf("missing editEphemeral in %v", tg.calls)
+		t.Fatalf("missing editEphemeralRich in %v", tg.calls)
+	}
+	if len(tg.sent) != 0 {
+		t.Fatalf("a private transcript must never reach the group: %v", tg.sent)
 	}
 }
 
@@ -741,7 +750,9 @@ func TestLongTranscriptUsesOneRichMessageWithinLimit(t *testing.T) {
 	}
 }
 
-func TestGroupVPLongUsesEphemeralRichMessage(t *testing.T) {
+// A long /vp result cannot be a new ephemeral message: Telegram only accepts one
+// within 15 seconds of the command. It has to edit the placeholder instead.
+func TestGroupVPLongEditsPlaceholderWithRichMessage(t *testing.T) {
 	long := strings.Repeat("word ", 1000)
 	st := &fakeStore{userCfg: map[int64]settings.Settings{
 		7: {SmartFormat: true, Paragraphs: true},
@@ -765,6 +776,11 @@ func TestGroupVPLongUsesEphemeralRichMessage(t *testing.T) {
 	}
 	if len(tg.ephemeralRich) != 1 || !contains(tg.ephemeralRich[0], "word word word") {
 		t.Fatalf("ephemeral rich = %d", len(tg.ephemeralRich))
+	}
+	for _, c := range tg.calls {
+		if c == "sendEphemeralRich" || c == "sendRich" {
+			t.Fatalf("no new message may be sent after the 15-second window: %v", tg.calls)
+		}
 	}
 }
 
@@ -793,6 +809,43 @@ func TestOverRichLimitSplitsIntoRichMessages(t *testing.T) {
 		if len([]rune(part)) > transcript.MaxRichCharacters {
 			t.Fatalf("part %d has %d characters", i, len([]rune(part)))
 		}
+	}
+}
+
+// A group promoted to a supergroup answers the send with the new chat id.
+// Retrying there is the difference between a delivered transcript and a job
+// that burns its three retries and dies.
+func TestSendRetriesAfterChatMigration(t *testing.T) {
+	st := &fakeStore{}
+	tg := &fakeTG{richErr: &telegram.APIError{
+		Method: "sendRichMessage", StatusCode: 400, ErrorCode: 400,
+		Description:     "Bad Request: group chat was upgraded to a supergroup chat",
+		MigrateToChatID: -1001,
+	}}
+	stt := &countingSTT{res: deepgram.Result{Text: "migrated text"}}
+	b := New(st, tg, stt, logger())
+	b.self = "voicetextbot"
+	upd := parseUpd(t, `{
+	  "update_id": 43,
+	  "message": {
+	    "message_id": 11,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": -100, "type": "group"},
+	    "text": "/v",
+	    "reply_to_message": {"message_id": 10, "voice": {"file_id": "MIG", "file_unique_id": "UM", "duration": 2}}
+	  }
+	}`)
+	if err := b.Handle(context.Background(), upd); err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.sent) != 1 || !contains(tg.sent[0], "migrated text") {
+		t.Fatalf("sent = %v", tg.sent)
+	}
+	if len(tg.richChats) != 1 || tg.richChats[0] != -1001 {
+		t.Fatalf("resend must target the migrated chat, got %v", tg.richChats)
+	}
+	if st.jobs[43] != "sent" {
+		t.Fatalf("job status = %q", st.jobs[43])
 	}
 }
 

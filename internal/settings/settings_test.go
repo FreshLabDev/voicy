@@ -105,3 +105,19 @@ func TestMigrationColumnsMatchSpecs(t *testing.T) {
 		t.Fatalf("migration variant default must embed %q", DefaultVariant)
 	}
 }
+
+// Diarization is requested with paragraphs because Deepgram returns speaker
+// turns on paragraph objects. The variant has to describe that request, or the
+// cache row claims an option set the transcript was never produced with.
+func TestVariantReflectsDiarizeImpliesParagraphs(t *testing.T) {
+	s := Settings{SmartFormat: true, Diarize: true}
+	if got := s.Normalized(); !got.Paragraphs {
+		t.Fatalf("normalized = %+v", got)
+	}
+	if got, want := s.Variant(), "sf1-p1-fw0-pf0-d1"; got != want {
+		t.Fatalf("variant = %q, want %q", got, want)
+	}
+	if got, want := Default().Variant(), DefaultVariant; got != want {
+		t.Fatalf("default variant = %q, want %q", got, want)
+	}
+}

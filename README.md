@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/FreshLabDev/voicy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/voicy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
-  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/version-v0.0.1--alpha.6-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="current version"></a>
+  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/version-v0.0.1--alpha.7-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="current version"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/voicy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/voicyin_bot"><img src="https://img.shields.io/badge/telegram-%40voicyin__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
@@ -46,7 +46,7 @@ Voicy keeps the first alpha deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.0.1-alpha.6` | Alpha: Rich Markdown, reliable jobs, human stats, and clean release automation |
+| Latest | `v0.0.1-alpha.7` | Alpha: Bot API 10.3 ephemeral contract, rich HTML transcripts, and self-healing jobs |
 | Stable | — | Not yet. This line is pre-release until `v0.0.1` |
 
 The bot is live for limited testing as [@voicyin_bot](https://t.me/voicyin_bot).
@@ -96,7 +96,7 @@ only to the user who invoked it. Bare voices in a group are ignored.
 
 A file that Voicy has already transcribed is served from cache. The audio file
 stays on Telegram; Voicy stores the `file_id` and the text. Long transcripts
-use Bot API Rich Markdown messages up to 32,768 characters each and split into
+use Bot API rich messages of up to 32,768 characters each and split into
 multiple readable messages when needed. Voicy never sends transcript files.
 
 ---
@@ -122,7 +122,7 @@ Transcription path:
 getFile -> bounded download
   -> Deepgram prerecorded POST /v1/listen
   -> persist file_id + text
-  -> send Rich Markdown
+  -> send rich HTML message
 ```
 
 ---
@@ -153,6 +153,7 @@ getFile -> bounded download
 | `TRANSCRIPT_RETENTION` | no | `2160h` | Retain terminal jobs and cached transcripts since last use |
 | `MAX_MEDIA_BYTES` | no | `20971520` | Maximum Telegram media download size |
 | `MAX_MEDIA_DURATION` | no | `1h` | Maximum voice or video-circle duration |
+| `JOB_STALE_AFTER` | no | `30m` | Age at which an unfinished job is failed and reported as stuck |
 
 ---
 
@@ -195,7 +196,7 @@ docker compose config
 | Document | Purpose |
 |:--|:--|
 | [Architecture](docs/architecture.md) | Service structure and core decisions |
-| [Telegram behavior](docs/telegram.md) | Commands, privacy, Rich Markdown, cache |
+| [Telegram behavior](docs/telegram.md) | Commands, privacy, rich messages, cache |
 | [Versioning](docs/versioning.md) | Pre-release and stable version line |
 | [Release process](docs/releases.md) | Changelog and GitHub Release rules |
 

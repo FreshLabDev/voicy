@@ -114,9 +114,21 @@ func (s Settings) IsOn(key string) bool {
 	return false
 }
 
+// Normalized applies the invariants the Deepgram request must satisfy, so the
+// cache variant describes the request that was actually sent. Speaker turns are
+// returned on paragraph objects, so diarization implies paragraphs.
+func (s Settings) Normalized() Settings {
+	if s.Diarize {
+		s.Paragraphs = true
+	}
+	return s
+}
+
 // Variant identifies the Deepgram option set of a Settings. Only STT-affecting
-// options take part: delivery options reuse the same transcript.
+// options take part: delivery options reuse the same transcript. It is computed
+// from Normalized so a variant never claims an option the request did not use.
 func (s Settings) Variant() string {
+	s = s.Normalized()
 	var b strings.Builder
 	write := func(prefix string, on bool) {
 		if on {

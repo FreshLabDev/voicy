@@ -8,6 +8,55 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-alpha.7 - 2026-09-06
+
+Voicy now speaks the Bot API 10.3 ephemeral contract, sends transcripts as rich
+HTML instead of Markdown, and recovers on its own from interrupted jobs and
+database blips.
+
+### Fixed
+
+- Ephemeral messages are sent with `ephemeral_message_parameters`. Bot API 10.3
+  removed the flat `receiver_user_id` parameter, which Telegram ignores: a `/vp`
+  placeholder could be delivered to the whole group instead of the requester.
+- Transcripts are sent in `rich_message.html` rather than `rich_message.markdown`.
+  The payload has always been HTML, and the Markdown field additionally parses
+  GitHub-flavored Markdown, so speech containing `*`, `_`, `#`, `|`, backticks,
+  or list-like lines was reformatted.
+- A long `/vp` result now edits the ephemeral placeholder with a `rich_message`.
+  Telegram accepts a new ephemeral message only within 15 seconds of the
+  triggering command, which transcription always outlives, so the previous
+  ephemeral rich reply could never succeed.
+- Jobs abandoned by a crash are failed by a reaper after `JOB_STALE_AFTER`.
+  Nothing else moved a `received` row to a terminal state, so one interrupted
+  transcription pinned `/healthz` at 503 and the container at unhealthy.
+- The first PostgreSQL connection is retried with backoff instead of exiting.
+  A container DNS lookup that is not ready at start no longer restarts the bot.
+- A failed offset or job-status write is logged and polling continues instead of
+  terminating the process on a transient database error.
+- A transcript cache variant now describes the request that was actually sent.
+  Diarization implies paragraphs, and the variant records that.
+- A send rejected with `migrate_to_chat_id` is retried against the new
+  supergroup, so a chat upgraded mid-request still receives its transcript.
+- `link_preview_options` replaces the removed `disable_web_page_preview`
+  parameter, `sendChatAction` carries the forum topic, and the deep-link
+  transcript touch no longer refreshes every variant of a file.
+- Update retries are spread with real jitter; the helper previously returned its
+  input unchanged.
+
+### Added
+
+- `JOB_STALE_AFTER` (default `30m`) sets when an unfinished job is failed and
+  when `/healthz` reports it as stuck. Both use the same threshold.
+- `my_chat_member` updates are classified and recorded. They were requested in
+  `allowed_updates` and then discarded. Groups stay quiet.
+
+### Operations
+
+- No migration. `JOB_STALE_AFTER` is optional and defaults to `30m`.
+- Existing cached transcripts stay valid. Only diarized settings produce a
+  different variant string, and those rows are recomputed on next use.
+
 ## v0.0.1-alpha.6 - 2026-08-22
 
 ### Operations

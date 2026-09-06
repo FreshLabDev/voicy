@@ -17,19 +17,23 @@ import (
 type fakeStore struct {
 	status db.HealthStatus
 	err    error
+	stale  time.Duration
 }
 
-func (f fakeStore) HealthStatus(context.Context) (db.HealthStatus, error) {
+func (f *fakeStore) HealthStatus(_ context.Context, staleAfter time.Duration) (db.HealthStatus, error) {
+	f.stale = staleAfter
 	return f.status, f.err
 }
 
 func TestHealthyRequiresDatabaseTelegramAndFreshPolling(t *testing.T) {
 	now := time.Now()
+	store := &fakeStore{status: db.HealthStatus{Received: 1, Failed: 2}}
 	h := New(
-		fakeStore{status: db.HealthStatus{Received: 1, Failed: 2}},
+		store,
 		func() time.Time { return now },
 		func() bool { return true },
 		now.Add(-time.Minute),
+		20*time.Minute,
 		Build{Version: "v1", Commit: "abc", Date: "today"},
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 	)
@@ -45,6 +49,9 @@ func TestHealthyRequiresDatabaseTelegramAndFreshPolling(t *testing.T) {
 	if !got.OK || !got.DB || !got.TelegramInitialized || !got.TelegramPollingFresh || got.JobsReceived != 1 || got.JobsFailed != 2 {
 		t.Fatalf("response = %+v", got)
 	}
+	if store.stale != 20*time.Minute {
+		t.Fatalf("stale threshold = %s, want the configured one", store.stale)
+	}
 }
 
 func TestUnhealthyForStuckJobOrMissingInitialization(t *testing.T) {
@@ -59,10 +66,10 @@ func TestUnhealthyForStuckJobOrMissingInitialization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := New(
-				fakeStore{status: db.HealthStatus{StuckReceived: tc.stuck}},
+				&fakeStore{status: db.HealthStatus{StuckReceived: tc.stuck}},
 				func() time.Time { return now },
 				func() bool { return tc.initialized },
-				now.Add(-time.Minute), Build{},
+				now.Add(-time.Minute), 0, Build{},
 				slog.New(slog.NewTextHandler(io.Discard, nil)),
 			)
 			rr := httptest.NewRecorder()

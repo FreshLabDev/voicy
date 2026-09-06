@@ -40,6 +40,19 @@ func (c *Client) SetAPIBase(base string) {
 	}
 }
 
+// noLinkPreview replaces the removed disable_web_page_preview parameter.
+var noLinkPreview = map[string]any{"is_disabled": true}
+
+// richHTML builds an InputRichMessage carrying HTML. Exactly one of html,
+// markdown or blocks may be set, and entity detection stays off so phone
+// numbers, hashtags and card-like digits inside speech are not linkified.
+func richHTML(body string) map[string]any {
+	return map[string]any{
+		"html":                  body,
+		"skip_entity_detection": true,
+	}
+}
+
 func (c *Client) DeleteWebhook(ctx context.Context) error {
 	var resp struct {
 		OK bool `json:"ok"`
@@ -95,20 +108,23 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSeconds in
 
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {
 	return c.sendMessage(ctx, map[string]any{
-		"chat_id":                  chatID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id":              chatID,
+		"text":                 text,
+		"parse_mode":           "HTML",
+		"link_preview_options": noLinkPreview,
 	}, markup)
 }
 
+// SendEphemeralMessage posts a message only the receiver can see. Bot API 10.3
+// replaced the flat receiver_user_id parameter with ephemeral_message_parameters;
+// the reply target is what authorizes the send inside Telegram's 15-second window.
 func (c *Client) SendEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *InlineKeyboardMarkup) (Message, error) {
 	req := map[string]any{
-		"chat_id":                  chatID,
-		"receiver_user_id":         receiverUserID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id":                      chatID,
+		"ephemeral_message_parameters": map[string]any{"receiver_user_id": receiverUserID},
+		"text":                         text,
+		"parse_mode":                   "HTML",
+		"link_preview_options":         noLinkPreview,
 		"reply_parameters": map[string]any{
 			"ephemeral_message_id": ephemeralMessageID,
 		},
@@ -116,13 +132,13 @@ func (c *Client) SendEphemeralMessage(ctx context.Context, chatID, receiverUserI
 	return c.sendMessage(ctx, req, markup)
 }
 
-func (c *Client) SendRichMarkdown(ctx context.Context, chatID, replyTo int64, threadID int, markdown string, markup *InlineKeyboardMarkup) (Message, error) {
+// SendRichHTML sends one rich message. The payload is HTML, so it belongs in
+// InputRichMessage.html: the markdown field would additionally parse GFM syntax
+// and mangle transcripts that contain *, _, #, |, backticks or list-like lines.
+func (c *Client) SendRichHTML(ctx context.Context, chatID, replyTo int64, threadID int, body string, markup *InlineKeyboardMarkup) (Message, error) {
 	req := map[string]any{
-		"chat_id": chatID,
-		"rich_message": map[string]any{
-			"markdown":              markdown,
-			"skip_entity_detection": true,
-		},
+		"chat_id":      chatID,
+		"rich_message": richHTML(body),
 	}
 	if replyTo > 0 {
 		req["reply_parameters"] = map[string]any{
@@ -135,23 +151,6 @@ func (c *Client) SendRichMarkdown(ctx context.Context, chatID, replyTo int64, th
 	}
 	if markup != nil {
 		req["reply_markup"] = markup
-	}
-	return c.sendRichMessage(ctx, req)
-}
-
-func (c *Client) SendEphemeralRichMarkdown(ctx context.Context, chatID, ephemeralReplyTo int64, threadID int, markdown string) (Message, error) {
-	req := map[string]any{
-		"chat_id": chatID,
-		"rich_message": map[string]any{
-			"markdown":              markdown,
-			"skip_entity_detection": true,
-		},
-		"reply_parameters": map[string]any{
-			"ephemeral_message_id": ephemeralReplyTo,
-		},
-	}
-	if threadID > 0 {
-		req["message_thread_id"] = threadID
 	}
 	return c.sendRichMessage(ctx, req)
 }
@@ -188,12 +187,31 @@ func (c *Client) sendMessage(ctx context.Context, req map[string]any, markup *In
 }
 
 func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *InlineKeyboardMarkup) error {
+	return c.editEphemeral(ctx, chatID, receiverUserID, ephemeralMessageID, map[string]any{
+		"text":       text,
+		"parse_mode": "HTML",
+	}, markup)
+}
+
+// EditEphemeralRichHTML replaces an ephemeral placeholder with rich content.
+// Bot API 10.3 added rich_message to editEphemeralMessageText, which is the only
+// way to deliver more than 4096 characters privately: a fresh ephemeral message
+// cannot be sent once transcription has pushed us past Telegram's 15-second
+// reply window.
+func (c *Client) EditEphemeralRichHTML(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, body string, markup *InlineKeyboardMarkup) error {
+	return c.editEphemeral(ctx, chatID, receiverUserID, ephemeralMessageID, map[string]any{
+		"rich_message": richHTML(body),
+	}, markup)
+}
+
+func (c *Client) editEphemeral(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, content map[string]any, markup *InlineKeyboardMarkup) error {
 	req := map[string]any{
 		"chat_id":              chatID,
 		"receiver_user_id":     receiverUserID,
 		"ephemeral_message_id": ephemeralMessageID,
-		"text":                 text,
-		"parse_mode":           "HTML",
+	}
+	for k, v := range content {
+		req[k] = v
 	}
 	if markup != nil {
 		req["reply_markup"] = markup
@@ -215,11 +233,11 @@ func (c *Client) EditEphemeralMessageText(ctx context.Context, chatID, receiverU
 
 func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, text string, markup *InlineKeyboardMarkup) error {
 	req := map[string]any{
-		"chat_id":                  chatID,
-		"message_id":               messageID,
-		"text":                     text,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id":              chatID,
+		"message_id":           messageID,
+		"text":                 text,
+		"parse_mode":           "HTML",
+		"link_preview_options": noLinkPreview,
 	}
 	if markup != nil {
 		req["reply_markup"] = markup
@@ -285,11 +303,15 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackID, text strin
 	return c.post(ctx, "answerCallbackQuery", req, &resp)
 }
 
-func (c *Client) SendChatAction(ctx context.Context, chatID int64, action string) error {
+func (c *Client) SendChatAction(ctx context.Context, chatID int64, threadID int, action string) error {
+	req := map[string]any{"chat_id": chatID, "action": action}
+	if threadID > 0 {
+		req["message_thread_id"] = threadID
+	}
 	var resp struct {
 		OK bool `json:"ok"`
 	}
-	return c.post(ctx, "sendChatAction", map[string]any{"chat_id": chatID, "action": action}, &resp)
+	return c.post(ctx, "sendChatAction", req, &resp)
 }
 
 func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {

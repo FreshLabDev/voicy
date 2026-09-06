@@ -21,7 +21,7 @@ func testClient(t *testing.T, handler http.HandlerFunc) *Client {
 	return c
 }
 
-func TestSendRichMarkdownPreservesReplyAndThread(t *testing.T) {
+func TestSendRichHTMLPreservesReplyAndThread(t *testing.T) {
 	var gotPath, gotBody string
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
@@ -29,37 +29,87 @@ func TestSendRichMarkdownPreservesReplyAndThread(t *testing.T) {
 		gotBody = string(raw)
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":10,"chat":{"id":42,"type":"private"}}}`))
 	})
-	msg, err := c.SendRichMarkdown(context.Background(), 42, 7, 3, "# hello", nil)
+	msg, err := c.SendRichHTML(context.Background(), 42, 7, 3, "<blockquote>1. hello</blockquote>", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasSuffix(gotPath, "/sendRichMessage") {
 		t.Fatalf("path = %q", gotPath)
 	}
-	for _, want := range []string{`"chat_id":42`, `"markdown":"# hello"`, `"skip_entity_detection":true`, `"message_id":7`, `"message_thread_id":3`} {
+	// The payload is HTML: sending it in the markdown field would let Telegram
+	// additionally parse "1." as an ordered list and mangle the transcript.
+	for _, want := range []string{`"chat_id":42`, `"html":"\u003cblockquote\u003e1. hello\u003c/blockquote\u003e"`, `"skip_entity_detection":true`, `"message_id":7`, `"message_thread_id":3`} {
 		if !strings.Contains(gotBody, want) {
 			t.Fatalf("missing %s in %s", want, gotBody)
 		}
+	}
+	if strings.Contains(gotBody, `"markdown"`) {
+		t.Fatalf("rich message must not use the markdown field: %s", gotBody)
 	}
 	if msg.MessageID != 10 {
 		t.Fatalf("message = %+v", msg)
 	}
 }
 
-func TestSendEphemeralRichMarkdownRepliesToCommand(t *testing.T) {
-	var gotPath string
-	var gotBody string
+// Bot API 10.3 moved receiver_user_id into ephemeral_message_parameters. Sending
+// the old flat parameter makes Telegram treat the message as an ordinary one,
+// which would publish a /vp placeholder to the whole group.
+func TestSendEphemeralMessageUsesEphemeralParameters(t *testing.T) {
+	var gotPath, gotBody string
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		raw, _ := io.ReadAll(r.Body)
 		gotBody = string(raw)
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"ephemeral_message_id":8,"chat":{"id":-100,"type":"supergroup"}}}`))
 	})
-	if _, err := c.SendEphemeralRichMarkdown(context.Background(), -100, 77, 9, "secret"); err != nil {
+	msg, err := c.SendEphemeralMessage(context.Background(), -100, 9, 77, "only for you", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(gotPath, "/sendRichMessage") || !strings.Contains(gotBody, `"ephemeral_message_id":77`) || !strings.Contains(gotBody, `"message_thread_id":9`) {
-		t.Fatalf("body = %s", gotBody)
+	if !strings.HasSuffix(gotPath, "/sendMessage") {
+		t.Fatalf("path = %q", gotPath)
+	}
+	for _, want := range []string{
+		`"ephemeral_message_parameters":{"receiver_user_id":9}`,
+		`"ephemeral_message_id":77`,
+		`"link_preview_options":{"is_disabled":true}`,
+	} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("missing %s in %s", want, gotBody)
+		}
+	}
+	if strings.Contains(gotBody, `"receiver_user_id":9,`) && !strings.Contains(gotBody, `"ephemeral_message_parameters"`) {
+		t.Fatalf("flat receiver_user_id is no longer a Bot API parameter: %s", gotBody)
+	}
+	if strings.Contains(gotBody, "disable_web_page_preview") {
+		t.Fatalf("disable_web_page_preview was removed from the Bot API: %s", gotBody)
+	}
+	if msg.EphemeralMessageID != 8 {
+		t.Fatalf("message = %+v", msg)
+	}
+}
+
+// A transcript longer than 4096 characters can only reach the requester by
+// editing the placeholder with rich content: a fresh ephemeral message is
+// impossible once Telegram's 15-second reply window has passed.
+func TestEditEphemeralRichHTMLSendsRichMessage(t *testing.T) {
+	var gotPath, gotBody string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	if err := c.EditEphemeralRichHTML(context.Background(), -100, 9, 77, "<blockquote>long</blockquote>", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(gotPath, "/editEphemeralMessageText") {
+		t.Fatalf("path = %q", gotPath)
+	}
+	for _, want := range []string{`"receiver_user_id":9`, `"ephemeral_message_id":77`, `"rich_message":{`, `"html":`, `"skip_entity_detection":true`} {
+		if !strings.Contains(gotBody, want) {
+			t.Fatalf("missing %s in %s", want, gotBody)
+		}
 	}
 }
 
