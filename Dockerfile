@@ -18,7 +18,10 @@ RUN CGO_ENABLED=0 go build -trimpath \
 
 FROM alpine:3.24
 
-RUN apk add --no-cache ca-certificates \
+# ffmpeg extracts the audio track from video and from oversized recordings
+# before they reach Deepgram, which is what Deepgram recommends for large video
+# and what keeps a hundred-megabyte upload from crossing the network twice.
+RUN apk add --no-cache ca-certificates ffmpeg \
     && adduser -D -H -u 10001 voicy
 
 WORKDIR /app

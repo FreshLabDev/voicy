@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/FreshLabDev/voicy/internal/i18n"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
 	"github.com/FreshLabDev/voicy/internal/telegram"
@@ -57,10 +58,7 @@ func helpPanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarkup
 }
 
 func statsPanel(lang string, owner int64, snap stats.Snapshot, global bool) (string, *telegram.InlineKeyboardMarkup) {
-	personalLabel, globalLabel := "My stats", "All Voicy"
-	if lang == "ru" {
-		personalLabel, globalLabel = "Моя", "Весь Voicy"
-	}
+	personalLabel, globalLabel := transcript.TabPersonal(lang), transcript.TabGlobal(lang)
 	if global {
 		globalLabel = toggleOn + globalLabel
 	} else {
@@ -79,20 +77,27 @@ func aboutPanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarku
 	return transcript.AboutText(lang), navMarkup(lang, owner)
 }
 
+// languagePanel lists every language the fleet shares, two per row. The flag and
+// native name come from i18n so Voicy's picker looks like searchy's and vido's.
 func languagePanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarkup) {
-	ru, en := toggleOff, toggleOff
-	if lang == "ru" {
-		ru = toggleOn
-	} else {
-		en = toggleOn
+	opts := i18n.LANGUAGE_OPTIONS
+	rows := make([][]telegram.InlineKeyboardButton, 0, (len(opts)+1)/2)
+	for i := 0; i < len(opts); i += 2 {
+		row := []telegram.InlineKeyboardButton{languageButton(opts[i], lang, owner)}
+		if i+1 < len(opts) {
+			row = append(row, languageButton(opts[i+1], lang, owner))
+		}
+		rows = append(rows, row)
 	}
-	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
-		{
-			{Text: ru + "Русский", CallbackData: cb(owner, "lang:ru")},
-			{Text: en + "English", CallbackData: cb(owner, "lang:en")},
-		},
-	}}
+	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
 	return transcript.LanguageText(lang), withNav(kb, lang, owner)
+}
+
+func languageButton(opt i18n.LangOption, lang string, owner int64) telegram.InlineKeyboardButton {
+	return telegram.InlineKeyboardButton{
+		Text:         toggleMark(opt.Code == lang) + opt.Label,
+		CallbackData: cb(owner, "lang:"+opt.Code),
+	}
 }
 
 func settingsPanel(lang string, owner int64, s settings.Settings) (string, *telegram.InlineKeyboardMarkup) {

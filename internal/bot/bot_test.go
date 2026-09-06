@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -312,11 +313,11 @@ func (f *fakeTG) GetFile(context.Context, string) (telegram.File, error) {
 	f.gotFile++
 	return telegram.File{FilePath: "voice/x.ogg"}, nil
 }
-func (f *fakeTG) DownloadFile(context.Context, string, int64) ([]byte, error) {
+func (f *fakeTG) DownloadToFile(_ context.Context, _, dst string, _ int64) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.downloaded++
-	return []byte("AUDIO"), nil
+	f.mu.Unlock()
+	return os.WriteFile(dst, []byte("AUDIO"), 0o600)
 }
 
 type countingSTT struct {
@@ -329,7 +330,7 @@ type countingSTT struct {
 	sawPlaceholder bool
 }
 
-func (c *countingSTT) Transcribe(_ context.Context, _ []byte, _ string, opts deepgram.Options) (deepgram.Result, error) {
+func (c *countingSTT) Transcribe(_ context.Context, _ string, _ string, opts deepgram.Options) (deepgram.Result, error) {
 	c.mu.Lock()
 	c.calls++
 	c.opts = opts

@@ -4,6 +4,7 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -187,6 +188,16 @@ func TestDeleteMessagePostsIDs(t *testing.T) {
 	}
 }
 
+// download is the pre-streaming helper the assertions still read best with.
+func download(t *testing.T, c *Client, filePath string, maxBytes int64) ([]byte, error) {
+	t.Helper()
+	dst := filepath.Join(t.TempDir(), "out.bin")
+	if err := c.DownloadToFile(context.Background(), filePath, dst, maxBytes); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(dst)
+}
+
 func TestGetFileAndDownload(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -206,7 +217,7 @@ func TestGetFileAndDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := c.DownloadFile(context.Background(), f.FilePath, 100)
+	body, err := download(t, c, f.FilePath, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,8 +230,9 @@ func TestDownloadRejectsOversizeBody(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("12345"))
 	})
-	if _, err := c.DownloadFile(context.Background(), "voice/x.ogg", 4); err == nil || !strings.Contains(err.Error(), "exceeds 4 bytes") {
-		t.Fatalf("error = %v", err)
+	_, err := download(t, c, "voice/x.ogg", 4)
+	if err == nil || !errors.Is(err, errFileTooLarge) {
+		t.Fatalf("error = %v, want the size limit", err)
 	}
 }
 
@@ -239,14 +251,57 @@ type plainErr struct{ s string }
 func (e *plainErr) Error() string { return e.s }
 
 func TestMessageMediaJSON(t *testing.T) {
-	raw := []byte(`{"message_id":1,"chat":{"id":5,"type":"private"},"voice":{"file_id":"f1","file_unique_id":"u1","duration":3,"mime_type":"audio/ogg","file_size":99}}`)
-	var msg Message
-	if err := json.Unmarshal(raw, &msg); err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want MediaRef
+	}{
+		{
+			name: "voice",
+			raw:  `{"voice":{"file_id":"f1","file_unique_id":"u1","duration":3,"mime_type":"audio/ogg","file_size":99}}`,
+			want: MediaRef{FileID: "f1", FileUniqueID: "u1", Kind: "voice", Duration: 3, MimeType: "audio/ogg", FileSize: 99},
+		},
+		{
+			name: "video note",
+			raw:  `{"video_note":{"file_id":"f2","file_unique_id":"u2","duration":5,"file_size":50}}`,
+			want: MediaRef{FileID: "f2", FileUniqueID: "u2", Kind: "video_note", Duration: 5, MimeType: "video/mp4", FileSize: 50},
+		},
+		{
+			name: "audio file",
+			raw:  `{"audio":{"file_id":"f3","file_unique_id":"u3","duration":180,"mime_type":"audio/mpeg","file_name":"talk.mp3","file_size":4000}}`,
+			want: MediaRef{FileID: "f3", FileUniqueID: "u3", Kind: "audio", Duration: 180, MimeType: "audio/mpeg", FileName: "talk.mp3", FileSize: 4000},
+		},
+		{
+			name: "video",
+			raw:  `{"video":{"file_id":"f4","file_unique_id":"u4","duration":60,"mime_type":"video/mp4","file_name":"clip.mp4","file_size":900000}}`,
+			want: MediaRef{FileID: "f4", FileUniqueID: "u4", Kind: "video", Duration: 60, MimeType: "video/mp4", FileName: "clip.mp4", FileSize: 900000},
+		},
+		{
+			name: "document",
+			raw:  `{"document":{"file_id":"f5","file_unique_id":"u5","mime_type":"audio/x-wav","file_name":"rec.wav","file_size":700}}`,
+			want: MediaRef{FileID: "f5", FileUniqueID: "u5", Kind: "document", MimeType: "audio/x-wav", FileName: "rec.wav", FileSize: 700},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var msg Message
+			if err := json.Unmarshal([]byte(tc.raw), &msg); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := msg.Media()
+			if !ok || got != tc.want {
+				t.Fatalf("media = %+v (ok=%v), want %+v", got, ok, tc.want)
+			}
+		})
 	}
-	id, uid, kind, dur, mime, size, ok := msg.Media()
-	if !ok || id != "f1" || uid != "u1" || kind != "voice" || dur != 3 || mime != "audio/ogg" || size != 99 {
-		t.Fatalf("media = %s %s %s %d %s %d %v", id, uid, kind, dur, mime, size, ok)
+
+	// A message with nothing attached has no media, and neither does a nil one.
+	var empty Message
+	if _, ok := empty.Media(); ok {
+		t.Fatal("an empty message must not report media")
+	}
+	var nilMsg *Message
+	if _, ok := nilMsg.Media(); ok {
+		t.Fatal("a nil message must not report media")
 	}
 }
 
@@ -264,7 +319,7 @@ func TestDownloadReadsLocalBotAPIPath(t *testing.T) {
 	if err := os.WriteFile(path, []byte("LOCALBYTES"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := c.DownloadFile(context.Background(), path, 1<<20)
+	got, err := download(t, c, path, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +345,7 @@ func TestDownloadRejectsOversizeLocalFile(t *testing.T) {
 	if err := os.WriteFile(path, make([]byte, 64), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.DownloadFile(context.Background(), path, 16); err == nil {
+	if _, err := download(t, c, path, 16); err == nil {
 		t.Fatal("an oversize local file must be rejected")
 	}
 	if httpCalls != 0 {
@@ -311,8 +366,7 @@ func TestDownloadFallsBackToHTTPWhenTheVolumeIsNotMounted(t *testing.T) {
 		gotPath = r.URL.Path
 		_, _ = w.Write([]byte("OVER-HTTP"))
 	})
-	got, err := c.DownloadFile(context.Background(),
-		"/var/lib/telegram-bot-api/SECRETTOKEN/voice/file_7.oga", 1<<20)
+	got, err := download(t, c, "/var/lib/telegram-bot-api/SECRETTOKEN/voice/file_7.oga", 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +400,7 @@ func TestDownloadStillUsesHTTPForRelativePaths(t *testing.T) {
 		gotPath = r.URL.Path
 		_, _ = w.Write([]byte("REMOTE"))
 	})
-	got, err := c.DownloadFile(context.Background(), "voice/file_1.oga", 1<<20)
+	got, err := download(t, c, "voice/file_1.oga", 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}

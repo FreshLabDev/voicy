@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +20,8 @@ import (
 	"github.com/FreshLabDev/voicy/internal/db"
 	"github.com/FreshLabDev/voicy/internal/decide"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/i18n"
+	"github.com/FreshLabDev/voicy/internal/media"
 	"github.com/FreshLabDev/voicy/internal/metrics"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
@@ -29,6 +34,7 @@ const (
 	defaultMaxMediaBytes   = int64(20 << 20)
 	defaultMaxMediaSeconds = 3600
 	defaultWorkers         = 4
+	defaultExtractAbove    = int64(20 << 20)
 	defaultStatsTTL        = 5 * time.Minute
 
 	// Telegram clears a chat action after five seconds, so a single call is
@@ -72,25 +78,28 @@ type Telegram interface {
 	AnswerCallbackQuery(context.Context, string, string) error
 	SendChatAction(context.Context, int64, int, string) error
 	GetFile(context.Context, string) (telegram.File, error)
-	DownloadFile(context.Context, string, int64) ([]byte, error)
+	DownloadToFile(ctx context.Context, filePath, dst string, maxBytes int64) error
 }
 
 type STT interface {
-	Transcribe(ctx context.Context, audio []byte, contentType string, opts deepgram.Options) (deepgram.Result, error)
+	Transcribe(ctx context.Context, path string, contentType string, opts deepgram.Options) (deepgram.Result, error)
 }
 
 type Bot struct {
-	store    Store
-	tg       Telegram
-	stt      STT
-	log      *slog.Logger
-	self     string
-	lastPoll atomic.Int64
-	ready    atomic.Bool
-	maxBytes int64
-	maxSecs  int
-	workers  int
-	stats    *statsCache
+	store        Store
+	tg           Telegram
+	stt          STT
+	log          *slog.Logger
+	self         string
+	lastPoll     atomic.Int64
+	ready        atomic.Bool
+	maxBytes     int64
+	maxSecs      int
+	workers      int
+	stats        *statsCache
+	extractor    *media.Extractor
+	tmpDir       string
+	extractAbove int64
 	// pulseEvery is how often the typing indicator is refreshed. It is a field
 	// so tests can observe several ticks without sleeping for seconds.
 	pulseEvery time.Duration
@@ -98,15 +107,26 @@ type Bot struct {
 
 func New(store Store, tg Telegram, stt STT, log *slog.Logger) *Bot {
 	return &Bot{
-		store:      store,
-		tg:         tg,
-		stt:        stt,
-		log:        log,
-		maxBytes:   defaultMaxMediaBytes,
-		maxSecs:    defaultMaxMediaSeconds,
-		workers:    defaultWorkers,
-		stats:      newStatsCache(defaultStatsTTL),
-		pulseEvery: chatActionInterval,
+		store:        store,
+		tg:           tg,
+		stt:          stt,
+		log:          log,
+		maxBytes:     defaultMaxMediaBytes,
+		maxSecs:      defaultMaxMediaSeconds,
+		workers:      defaultWorkers,
+		stats:        newStatsCache(defaultStatsTTL),
+		pulseEvery:   chatActionInterval,
+		extractAbove: defaultExtractAbove,
+	}
+}
+
+// SetMediaTools configures audio extraction. A nil extractor is fine: files are
+// then sent to Deepgram exactly as Telegram stored them.
+func (b *Bot) SetMediaTools(extractor *media.Extractor, tmpDir string, extractAbove int64) {
+	b.extractor = extractor
+	b.tmpDir = tmpDir
+	if extractAbove > 0 {
+		b.extractAbove = extractAbove
 	}
 }
 
@@ -144,21 +164,37 @@ func (b *Bot) LastPoll() time.Time {
 	return time.Unix(unix, 0)
 }
 
+// RegisterCommands publishes the command list once per language Voicy speaks,
+// plus a language-less default. Telegram picks the list matching the client's
+// language, so an English menu no longer greets a Russian or Ukrainian user.
 func (b *Bot) RegisterCommands(ctx context.Context) error {
-	if err := b.tg.SetMyCommandsForScope(ctx, []telegram.BotCommand{
-		{Command: "start", Description: "Open Voicy"},
-		{Command: "stats", Description: "Your stats"},
-		{Command: "language", Description: "Interface language"},
-		{Command: "help", Description: "How it works"},
-		{Command: "about", Description: "About Voicy"},
-	}, &telegram.BotCommandScope{Type: "all_private_chats"}); err != nil {
-		return err
+	for _, lang := range append([]string{""}, i18n.Codes()...) {
+		text := lang
+		if text == "" {
+			text = i18n.DefaultLang
+		}
+		private := []telegram.BotCommand{
+			{Command: "start", Description: i18n.T(text, "cmd.start")},
+			{Command: "stats", Description: i18n.T(text, "cmd.stats")},
+			{Command: "language", Description: i18n.T(text, "cmd.language")},
+			{Command: "help", Description: i18n.T(text, "cmd.help")},
+			{Command: "about", Description: i18n.T(text, "cmd.about")},
+		}
+		if err := b.tg.SetMyCommandsForScope(ctx, private,
+			&telegram.BotCommandScope{Type: "all_private_chats", LanguageCode: lang}); err != nil {
+			return err
+		}
+		group := []telegram.BotCommand{
+			{Command: "start", Description: i18n.T(text, "cmd.start_group"), IsEphemeral: true},
+			{Command: "v", Description: i18n.T(text, "cmd.v")},
+			{Command: "vp", Description: i18n.T(text, "cmd.vp"), IsEphemeral: true},
+		}
+		if err := b.tg.SetMyCommandsForScope(ctx, group,
+			&telegram.BotCommandScope{Type: "all_group_chats", LanguageCode: lang}); err != nil {
+			return err
+		}
 	}
-	return b.tg.SetMyCommandsForScope(ctx, []telegram.BotCommand{
-		{Command: "start", Description: "Open Voicy privately", IsEphemeral: true},
-		{Command: "v", Description: "Transcribe for everyone"},
-		{Command: "vp", Description: "Transcribe just for you", IsEphemeral: true},
-	}, &telegram.BotCommandScope{Type: "all_group_chats"})
+	return nil
 }
 
 func (b *Bot) initialize(ctx context.Context) error {
@@ -445,6 +481,9 @@ func (b *Bot) Handle(ctx context.Context, upd telegram.Update) error {
 	case decide.Nudge:
 		_, err := b.tg.SendMessage(ctx, act.ChatID, transcript.NudgeText(lang), nil)
 		return err
+	case decide.Unsupported:
+		_, err := b.tg.SendMessage(ctx, act.ChatID, transcript.UnsupportedText(lang), nil)
+		return err
 	case decide.Language:
 		return b.handleLanguage(ctx, act, lang)
 	case decide.Callback:
@@ -488,20 +527,15 @@ func (b *Bot) handleLanguage(ctx context.Context, act decide.Action, lang string
 	return err
 }
 
-// normalizeLangChoice maps a /language argument or callback code to "ru"/"en".
-// Empty or unrecognized input means "just open the panel".
+// normalizeLangChoice maps a /language argument or callback code to a supported
+// language. Empty or unrecognized input means "just open the panel", so an
+// unknown code never silently rewrites the shared preference.
 func normalizeLangChoice(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if i := strings.IndexByte(s, '-'); i > 0 {
-		s = s[:i]
-	}
-	switch s {
-	case "":
+	code := i18n.Normalize(s)
+	if code == "" || !i18n.IsSupported(code) {
 		return ""
-	case "ru", "uk", "be", "en":
-		return transcript.LangOf(s)
 	}
-	return ""
+	return code
 }
 
 func (b *Bot) handleStart(ctx context.Context, act decide.Action, lang string) error {
@@ -740,17 +774,18 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if b.mediaTooLarge(act.Media.Duration, file.FileSize) {
 		return b.failJob(ctx, job.ID, "media_limit", act, prog, transcript.TooLargeText(lang))
 	}
-	audio, err := b.tg.DownloadFile(ctx, file.FilePath, b.maxBytes)
+	audioPath, ctype, cleanup, err := b.fetchAudio(ctx, act, file, prog, lang)
+	defer cleanup()
 	if err != nil {
-		b.log.Error("download failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "error", err)
-		return b.failJob(ctx, job.ID, "download", act, prog, transcript.ErrorText(lang))
-	}
-	ctype := act.Media.MimeType
-	if ctype == "" && act.Media.Kind == "video_note" {
-		ctype = "video/mp4"
-	}
-	if ctype == "" {
-		ctype = "audio/ogg"
+		stage := "download"
+		if errors.Is(err, errExtract) {
+			stage = "extract"
+		}
+		if errors.Is(err, errTooLarge) {
+			return b.failJob(ctx, job.ID, "media_limit", act, prog, transcript.TooLargeText(lang))
+		}
+		b.log.Error("preparing audio failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "stage", stage, "error", err)
+		return b.failJob(ctx, job.ID, stage, act, prog, transcript.ErrorText(lang))
 	}
 
 	// s is already normalized, so these options match the variant the transcript
@@ -765,7 +800,7 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 		AudioSeconds: act.Media.Duration,
 	}
 	metrics.AudioSeconds.Add(int64(act.Media.Duration))
-	res, err := b.stt.Transcribe(ctx, audio, ctype, opts)
+	res, err := b.stt.Transcribe(ctx, audioPath, ctype, opts)
 	if err != nil {
 		b.log.Error("deepgram failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "kind", act.Media.Kind, "duration", act.Media.Duration, "error", err)
 		return b.failJob(ctx, job.ID, "deepgram", act, prog, transcript.ErrorText(lang))
@@ -816,6 +851,85 @@ func (b *Bot) deliverOnce(ctx context.Context, jobID int64, act decide.Action, l
 	}
 	metrics.TranscriptsSent.Inc()
 	return nil
+}
+
+var (
+	errTooLarge = errors.New("media exceeds the configured limit")
+	errExtract  = errors.New("audio extraction failed")
+)
+
+// fetchAudio streams the media to a temporary file and, when the source is a
+// video or simply large, replaces it with a small mono Opus track. The returned
+// cleanup removes everything it created and is safe to call on any path.
+func (b *Bot) fetchAudio(ctx context.Context, act decide.Action, file telegram.File, prog *progress, lang string) (path, contentType string, cleanup func(), err error) {
+	var created []string
+	cleanup = func() {
+		for _, p := range created {
+			_ = os.Remove(p)
+		}
+	}
+
+	dir := b.tmpDir
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	source := filepath.Join(dir, "voicy-"+strconv.FormatInt(act.UpdateID, 10)+extensionOf(file.FilePath, act.Media.FileName))
+	if err := b.tg.DownloadToFile(ctx, file.FilePath, source, b.maxBytes); err != nil {
+		_ = os.Remove(source)
+		if strings.Contains(err.Error(), "exceeds") {
+			return "", "", cleanup, fmt.Errorf("%w: %v", errTooLarge, err)
+		}
+		return "", "", cleanup, err
+	}
+	created = append(created, source)
+
+	if !b.extractor.Needed(act.Media.IsVideo, fileSize(source), b.extractAbove) {
+		return source, media.ContentType(act.Media.Kind, act.Media.MimeType, act.Media.FileName), cleanup, nil
+	}
+
+	// Tell the user why a video takes a moment longer than a voice message.
+	b.announce(ctx, act, prog, transcript.ExtractingText(lang))
+	track, err := b.extractor.Extract(ctx, source)
+	if err != nil {
+		// A video whose audio cannot be demuxed is not worth a Deepgram call.
+		if act.Media.IsVideo {
+			return "", "", cleanup, fmt.Errorf("%w: %v", errExtract, err)
+		}
+		b.log.Warn("extraction failed; sending the original", "update_id", act.UpdateID, "error", err)
+		return source, media.ContentType(act.Media.Kind, act.Media.MimeType, act.Media.FileName), cleanup, nil
+	}
+	created = append(created, track)
+	return track, media.ExtractedContentType, cleanup, nil
+}
+
+// announce updates whatever placeholder is already on screen. It is purely
+// informational, so a failure is not worth interrupting the job for.
+func (b *Bot) announce(ctx context.Context, act decide.Action, prog *progress, text string) {
+	switch {
+	case prog.ephemeralOK:
+		_ = b.tg.EditEphemeralMessageText(ctx, act.ChatID, act.UserID, prog.ephemeralID, text, nil)
+	case prog.directID != 0:
+		_ = b.tg.EditMessageRichHTML(ctx, act.ChatID, prog.directID, text, nil)
+	}
+}
+
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// extensionOf keeps a recognizable suffix on the temporary file so ffmpeg can
+// use it as a hint when a container is ambiguous.
+func extensionOf(candidates ...string) string {
+	for _, c := range candidates {
+		if ext := strings.ToLower(filepath.Ext(c)); len(ext) > 1 && len(ext) <= 6 {
+			return ext
+		}
+	}
+	return ".bin"
 }
 
 func retrievalToken() (string, error) {

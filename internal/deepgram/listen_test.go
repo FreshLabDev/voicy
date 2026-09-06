@@ -6,9 +6,22 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// audioFile writes a scratch file to stand in for a downloaded recording.
+// Deepgram is streamed from disk now, so tests hand it a path.
+func audioFile(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "audio.ogg")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 func TestListenFilePostsTokenAndBinary(t *testing.T) {
 	var gotAuth, gotPath, gotCT string
@@ -24,7 +37,7 @@ func TestListenFilePostsTokenAndBinary(t *testing.T) {
 	c := New("listen-secret")
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
-	got, err := c.ListenFile(context.Background(), []byte("OGG"), "audio/ogg", DefaultOptions)
+	got, err := c.ListenFile(context.Background(), audioFile(t, "OGG"), "audio/ogg", DefaultOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +77,7 @@ func TestTranscribeUsesRESTListen(t *testing.T) {
 	c := New("listen-secret")
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
-	got, err := c.Transcribe(context.Background(), []byte("OGG"), "", DefaultOptions)
+	got, err := c.Transcribe(context.Background(), audioFile(t, "OGG"), "", DefaultOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +105,7 @@ func TestRestQueryFollowsOptions(t *testing.T) {
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
 	opts := Options{SmartFormat: false, Paragraphs: false, FillerWords: true, ProfanityFilter: true, Diarize: true}
-	if _, err := c.ListenFile(context.Background(), []byte("OGG"), "", opts); err != nil {
+	if _, err := c.ListenFile(context.Background(), audioFile(t, "OGG"), "", opts); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
@@ -127,7 +140,7 @@ func TestListenFileZeroOptionsStayZero(t *testing.T) {
 	c := New("k")
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
-	if _, err := c.ListenFile(context.Background(), []byte("OGG"), "", Options{}); err != nil {
+	if _, err := c.ListenFile(context.Background(), audioFile(t, "OGG"), "", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(gotQuery, "smart_format=false") || !strings.Contains(gotQuery, "paragraphs=false") {
@@ -153,7 +166,7 @@ func TestListenFileRetriesTransientFailures(t *testing.T) {
 	c := New("k")
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
-	got, err := c.ListenFile(context.Background(), []byte("OGG"), "", DefaultOptions)
+	got, err := c.ListenFile(context.Background(), audioFile(t, "OGG"), "", DefaultOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +190,7 @@ func TestListenFileDoesNotRetryClientErrors(t *testing.T) {
 	c := New("k")
 	c.SetRESTBase(srv.URL)
 	c.SetHTTP(srv.Client())
-	_, err := c.ListenFile(context.Background(), []byte("OGG"), "", DefaultOptions)
+	_, err := c.ListenFile(context.Background(), audioFile(t, "OGG"), "", DefaultOptions)
 	if err == nil {
 		t.Fatal("a 400 must not be reported as success")
 	}

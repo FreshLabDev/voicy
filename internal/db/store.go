@@ -251,23 +251,21 @@ func (s *Store) CompleteJob(ctx context.Context, id int64, status, errCode strin
 		return err
 	}
 	if stats.ShouldCount(status, res.Text) {
-		voice, circle := 1, 0
-		if kind == "video_note" {
-			voice, circle = 0, 1
-		}
+		voice, circle, file := stats.Kind(kind)
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO user_stats (telegram_user_id, transcriptions, voice_count, video_note_count, duration_seconds, words, last_language, first_at, last_at)
-			VALUES ($1,1,$2,$3,$4,$5,$6,now(),now())
+			INSERT INTO user_stats (telegram_user_id, transcriptions, voice_count, video_note_count, file_count, duration_seconds, words, last_language, first_at, last_at)
+			VALUES ($1,1,$2,$3,$4,$5,$6,$7,now(),now())
 			ON CONFLICT (telegram_user_id) DO UPDATE SET
 			  transcriptions = user_stats.transcriptions + 1,
 			  voice_count = user_stats.voice_count + EXCLUDED.voice_count,
 			  video_note_count = user_stats.video_note_count + EXCLUDED.video_note_count,
+			  file_count = user_stats.file_count + EXCLUDED.file_count,
 			  duration_seconds = user_stats.duration_seconds + EXCLUDED.duration_seconds,
 			  words = user_stats.words + EXCLUDED.words,
 			  last_language = COALESCE(EXCLUDED.last_language, user_stats.last_language),
 			  first_at = LEAST(user_stats.first_at, EXCLUDED.first_at),
 			  last_at = GREATEST(user_stats.last_at, EXCLUDED.last_at)`,
-			userID, voice, circle, res.Duration, res.WordCount, nullString(res.Language)); err != nil {
+			userID, voice, circle, file, res.Duration, res.WordCount, nullString(res.Language)); err != nil {
 			return err
 		}
 	}
@@ -284,9 +282,9 @@ func (s *Store) FailUpdate(ctx context.Context, updateID int64, errCode string) 
 func (s *Store) UserStats(ctx context.Context, userID int64) (stats.Snapshot, error) {
 	out := stats.EmptySnapshot()
 	err := s.pool.QueryRow(ctx, `
-			SELECT transcriptions, voice_count, video_note_count, duration_seconds, words, COALESCE(last_language,'')
+			SELECT transcriptions, voice_count, video_note_count, file_count, duration_seconds, words, COALESCE(last_language,'')
 		FROM user_stats WHERE telegram_user_id=$1`, userID).
-		Scan(&out.Transcriptions, &out.Voice, &out.VideoNotes, &out.DurationSec, &out.Words, &out.LastLanguage)
+		Scan(&out.Transcriptions, &out.Voice, &out.VideoNotes, &out.Files, &out.DurationSec, &out.Words, &out.LastLanguage)
 	if err == pgx.ErrNoRows {
 		return out, nil
 	}
@@ -301,9 +299,9 @@ func (s *Store) GlobalStats(ctx context.Context) (stats.Snapshot, error) {
 	out := stats.EmptySnapshot()
 	err := s.pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(transcriptions),0), COALESCE(SUM(voice_count),0), COALESCE(SUM(video_note_count),0),
-		       COALESCE(SUM(duration_seconds),0), COALESCE(SUM(words),0), COUNT(*)
+		       COALESCE(SUM(file_count),0), COALESCE(SUM(duration_seconds),0), COALESCE(SUM(words),0), COUNT(*)
 		FROM user_stats`).
-		Scan(&out.Transcriptions, &out.Voice, &out.VideoNotes, &out.DurationSec, &out.Words, &out.Users)
+		Scan(&out.Transcriptions, &out.Voice, &out.VideoNotes, &out.Files, &out.DurationSec, &out.Words, &out.Users)
 	if err != nil {
 		return out, err
 	}

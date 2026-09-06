@@ -16,6 +16,7 @@ import (
 	"github.com/FreshLabDev/voicy/internal/db"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
 	"github.com/FreshLabDev/voicy/internal/health"
+	"github.com/FreshLabDev/voicy/internal/media"
 	"github.com/FreshLabDev/voicy/internal/metrics"
 	"github.com/FreshLabDev/voicy/internal/telegram"
 )
@@ -66,6 +67,12 @@ func run(log *slog.Logger) error {
 	b.SetMediaLimits(cfg.MaxMediaBytes, cfg.MaxMediaDuration)
 	b.SetWorkers(cfg.MaxConcurrentJobs)
 	b.SetStatsTTL(cfg.StatsCacheTTL)
+	extractor := media.NewExtractor(cfg.FFmpegPath)
+	if !extractor.Available() && cfg.FFmpegPath != "" {
+		// Not fatal: voice messages and audio files still work. Video will not.
+		log.Warn("ffmpeg not found; video will be sent to Deepgram unextracted", "path", cfg.FFmpegPath)
+	}
+	b.SetMediaTools(extractor, cfg.MediaTmpDir, cfg.ExtractAboveBytes)
 
 	started := time.Now()
 	mux := http.NewServeMux()

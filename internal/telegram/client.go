@@ -82,10 +82,15 @@ func (c *Client) GetMe(ctx context.Context) (Me, error) {
 	return resp.Result, nil
 }
 
+// SetMyCommandsForScope publishes one command list. language_code is a sibling
+// of scope in the Bot API, not a field inside it, so it is lifted out here.
 func (c *Client) SetMyCommandsForScope(ctx context.Context, commands []BotCommand, scope *BotCommandScope) error {
 	req := map[string]any{"commands": commands}
 	if scope != nil {
 		req["scope"] = scope
+		if scope.LanguageCode != "" {
+			req["language_code"] = scope.LanguageCode
+		}
 	}
 	var resp struct {
 		OK bool `json:"ok"`
@@ -368,70 +373,85 @@ func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {
 // token, so mounting it would hand Voicy every other bot's credentials. The
 // normal path is therefore to make the path relative again and fetch it over
 // the local network, which still lifts the cloud API's 20 MB ceiling.
-func (c *Client) DownloadFile(ctx context.Context, filePath string, maxBytes int64) ([]byte, error) {
+// DownloadToFile streams the media behind a getFile result into dst. Nothing is
+// buffered in memory: with a self-hosted Bot API server a single file can be
+// hundreds of megabytes, and several transcriptions run at once.
+func (c *Client) DownloadToFile(ctx context.Context, filePath, dst string, maxBytes int64) error {
 	if maxBytes <= 0 {
-		return nil, fmt.Errorf("download limit must be positive")
+		return fmt.Errorf("download limit must be positive")
 	}
 	if strings.HasPrefix(filePath, "/") {
-		body, err := c.readLocalFile(filePath, maxBytes)
+		err := c.copyLocalFile(filePath, dst, maxBytes)
 		if err == nil {
-			return body, nil
+			return nil
 		}
 		if errors.Is(err, errFileTooLarge) {
-			return nil, err
+			return err
 		}
 		filePath = relativeLocalPath(filePath, c.token)
 	}
-	downloadCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	downloadCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
 	rawURL := strings.TrimRight(c.apiBase, "/") + "/file/bot" + c.token + "/" + strings.TrimPrefix(filePath, "/")
 	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, c.redactError(err)
+		return c.redactError(err)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, c.redactError(err)
+		return c.redactError(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, parseAPIError("downloadFile", resp.StatusCode, resp.Body)
+		return parseAPIError("downloadFile", resp.StatusCode, resp.Body)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	return writeLimited(dst, resp.Body, maxBytes)
+}
+
+// writeLimited copies at most maxBytes into dst and fails if the source has
+// more, so an oversize file is rejected without ever being held whole.
+func writeLimited(dst string, src io.Reader, maxBytes int64) error {
+	out, err := os.Create(dst)
 	if err != nil {
-		return nil, c.redactError(err)
+		return fmt.Errorf("create download target: %w", err)
 	}
-	if int64(len(body)) > maxBytes {
-		return nil, fmt.Errorf("telegram file exceeds %d bytes", maxBytes)
+	defer out.Close()
+	written, err := io.Copy(out, io.LimitReader(src, maxBytes+1))
+	if err != nil {
+		return fmt.Errorf("write download: %w", err)
 	}
-	return body, nil
+	if written > maxBytes {
+		return fmt.Errorf("%w: more than %d bytes", errFileTooLarge, maxBytes)
+	}
+	return out.Sync()
 }
 
 // errFileTooLarge marks a limit that a second attempt cannot get past, so the
 // HTTP fallback is not tried for a file we already know is oversize.
 var errFileTooLarge = errors.New("telegram file exceeds the download limit")
 
-// readLocalFile reads a file produced by a local Bot API server whose data
+// copyLocalFile copies a file produced by a local Bot API server whose data
 // directory is mounted here. The path comes from getFile, never from user input.
-func (c *Client) readLocalFile(path string, maxBytes int64) ([]byte, error) {
+func (c *Client) copyLocalFile(path, dst string, maxBytes int64) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("local bot api file unavailable: %w", err)
+		return fmt.Errorf("local bot api file unavailable: %w", err)
 	}
 	if info.Size() > maxBytes {
-		return nil, fmt.Errorf("%w: %d bytes", errFileTooLarge, info.Size())
+		return fmt.Errorf("%w: %d bytes", errFileTooLarge, info.Size())
 	}
-	body, err := os.ReadFile(path)
+	in, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("read local bot api file: %w", err)
+		return fmt.Errorf("open local bot api file: %w", err)
 	}
-	if int64(len(body)) > maxBytes {
-		return nil, fmt.Errorf("%w: %d bytes", errFileTooLarge, len(body))
+	defer in.Close()
+	if err := writeLimited(dst, in, maxBytes); err != nil {
+		return err
 	}
 	// A local server keeps every file it ever produced, and the directory is
 	// shared with the other bots.
 	_ = os.Remove(path)
-	return body, nil
+	return nil
 }
 
 // relativeLocalPath turns "/var/lib/telegram-bot-api/<token>/voice/file_1.oga"
