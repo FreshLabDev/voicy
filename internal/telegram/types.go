@@ -35,6 +35,32 @@ type VideoNote struct {
 	FileSize     int64  `json:"file_size"`
 }
 
+type Audio struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Duration     int    `json:"duration"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+	FileName     string `json:"file_name"`
+}
+
+type Video struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Duration     int    `json:"duration"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+	FileName     string `json:"file_name"`
+}
+
+type Document struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+	FileName     string `json:"file_name"`
+}
+
 type File struct {
 	FileID   string `json:"file_id"`
 	FilePath string `json:"file_path"`
@@ -52,6 +78,9 @@ type Message struct {
 	Caption            string     `json:"caption"`
 	Voice              *Voice     `json:"voice"`
 	VideoNote          *VideoNote `json:"video_note"`
+	Audio              *Audio     `json:"audio"`
+	Video              *Video     `json:"video"`
+	Document           *Document  `json:"document"`
 	ReplyToMessage     *Message   `json:"reply_to_message"`
 }
 
@@ -105,6 +134,9 @@ type BotCommand struct {
 
 type BotCommandScope struct {
 	Type string `json:"type"`
+	// LanguageCode is carried here for convenience; setMyCommands takes it as a
+	// sibling of scope, and the client sends it separately.
+	LanguageCode string `json:"-"`
 }
 
 type Me struct {
@@ -128,15 +160,35 @@ func (e *APIError) Error() string {
 	return "telegram " + e.Method + " failed: " + e.Description
 }
 
-func (m *Message) Media() (fileID, uniqueID, kind string, duration int, mime string, size int64, ok bool) {
+// MediaRef is any attachment Voicy might transcribe.
+type MediaRef struct {
+	FileID       string
+	FileUniqueID string
+	Kind         string
+	Duration     int
+	MimeType     string
+	FileName     string
+	FileSize     int64
+}
+
+// Media returns the attachment to transcribe. Voice messages and circles come
+// first because they are what the bot is for; audio, video and documents follow
+// and are gated by the caller, since a document can be any file at all.
+func (m *Message) Media() (MediaRef, bool) {
 	if m == nil {
-		return
+		return MediaRef{}, false
 	}
-	if m.Voice != nil && m.Voice.FileID != "" {
-		return m.Voice.FileID, m.Voice.FileUniqueID, "voice", m.Voice.Duration, m.Voice.MimeType, m.Voice.FileSize, true
+	switch {
+	case m.Voice != nil && m.Voice.FileID != "":
+		return MediaRef{m.Voice.FileID, m.Voice.FileUniqueID, "voice", m.Voice.Duration, m.Voice.MimeType, "", m.Voice.FileSize}, true
+	case m.VideoNote != nil && m.VideoNote.FileID != "":
+		return MediaRef{m.VideoNote.FileID, m.VideoNote.FileUniqueID, "video_note", m.VideoNote.Duration, "video/mp4", "", m.VideoNote.FileSize}, true
+	case m.Audio != nil && m.Audio.FileID != "":
+		return MediaRef{m.Audio.FileID, m.Audio.FileUniqueID, "audio", m.Audio.Duration, m.Audio.MimeType, m.Audio.FileName, m.Audio.FileSize}, true
+	case m.Video != nil && m.Video.FileID != "":
+		return MediaRef{m.Video.FileID, m.Video.FileUniqueID, "video", m.Video.Duration, m.Video.MimeType, m.Video.FileName, m.Video.FileSize}, true
+	case m.Document != nil && m.Document.FileID != "":
+		return MediaRef{m.Document.FileID, m.Document.FileUniqueID, "document", 0, m.Document.MimeType, m.Document.FileName, m.Document.FileSize}, true
 	}
-	if m.VideoNote != nil && m.VideoNote.FileID != "" {
-		return m.VideoNote.FileID, m.VideoNote.FileUniqueID, "video_note", m.VideoNote.Duration, "", m.VideoNote.FileSize, true
-	}
-	return
+	return MediaRef{}, false
 }

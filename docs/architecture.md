@@ -10,8 +10,10 @@ surface. PostgreSQL is its only durable store.
 - Voicy connects as `voicy_core`, can reference `core.person` and `core.chat`,
   and can execute only `core.touch`, `core.set_language`, and
   `core.effective_language`.
-- Audio is held in memory only for the Deepgram request. It is never logged or
-  stored in PostgreSQL.
+- Media is streamed to a temporary file, never held whole in memory, and
+  deleted when the job ends. It is never logged or stored in PostgreSQL.
+- ffmpeg reduces video and oversized media to a mono Opus track before the
+  Deepgram request. Without ffmpeg the original is sent instead.
 - Telegram is accessed through the first-party HTTP client in
   `internal/telegram`. There is no SDK and no webhook mode.
 - `TELEGRAM_API_BASE` selects the Bot API server. The shared self-hosted one on
@@ -88,6 +90,8 @@ Markdown when possible, then DM, then an owner-bound deep link as recovery.
 
 - `cmd/voicy`: wiring, cleanup and reaper loops, HTTP server, shutdown.
 - `internal/httpx`: the tuned HTTP transport shared by Telegram and Deepgram.
+- `internal/i18n`: the sixteen fleet languages and their strings.
+- `internal/media`: what is worth transcribing, and audio extraction.
 - `internal/metrics`: dependency-free Prometheus counters behind `/metrics`.
 - `internal/bot`: handlers, retries, cache and delivery orchestration.
 - `internal/config`: validated environment configuration.

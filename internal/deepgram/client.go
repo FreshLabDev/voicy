@@ -2,7 +2,6 @@
 package deepgram
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -157,8 +157,15 @@ func backoff(attempt int) time.Duration {
 	return d - time.Duration(half) + time.Duration(rand.Int63n(2*half+1))
 }
 
-func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType string, opts Options) (Result, error) {
-	if len(audio) == 0 {
+// ListenFile transcribes the audio at path. The file is reopened per attempt
+// rather than buffered, so a retry can replay a body of any size without the
+// whole recording sitting in memory.
+func (c *Client) ListenFile(ctx context.Context, path string, contentType string, opts Options) (Result, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return Result{}, fmt.Errorf("audio unavailable: %w", err)
+	}
+	if info.Size() == 0 {
 		return Result{}, fmt.Errorf("empty audio")
 	}
 	if contentType == "" {
@@ -167,7 +174,7 @@ func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType strin
 	timeout := requestTimeout(opts.AudioSeconds)
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		res, err := c.listenOnce(ctx, audio, contentType, opts, timeout)
+		res, err := c.listenOnce(ctx, path, info.Size(), contentType, opts, timeout)
 		if err == nil {
 			return res, nil
 		}
@@ -188,16 +195,23 @@ func (c *Client) ListenFile(ctx context.Context, audio []byte, contentType strin
 	return Result{}, lastErr
 }
 
-func (c *Client) listenOnce(ctx context.Context, audio []byte, contentType string, opts Options, timeout time.Duration) (Result, error) {
+func (c *Client) listenOnce(ctx context.Context, path string, size int64, contentType string, opts Options, timeout time.Duration) (Result, error) {
 	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	audio, err := os.Open(path)
+	if err != nil {
+		return Result{}, fmt.Errorf("open audio: %w", err)
+	}
+	defer audio.Close()
 	// A zero Options is legitimate "everything off": substituting defaults
 	// here would desync the request from the cache variant it is saved under.
 	endpoint := c.rest + ListenPath + "?" + restQuery(opts)
-	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, endpoint, bytes.NewReader(audio))
+	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, endpoint, audio)
 	if err != nil {
 		return Result{}, redact(c.apiKey, err)
 	}
+	// Deepgram needs a length; without it the body would be chunked.
+	req.ContentLength = size
 	req.Header.Set("Authorization", "Token "+c.apiKey)
 	req.Header.Set("Content-Type", contentType)
 	resp, err := c.http.Do(req)
@@ -250,8 +264,8 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (c *Client) Transcribe(ctx context.Context, audio []byte, contentType string, opts Options) (Result, error) {
-	return c.ListenFile(ctx, audio, contentType, opts)
+func (c *Client) Transcribe(ctx context.Context, path string, contentType string, opts Options) (Result, error) {
+	return c.ListenFile(ctx, path, contentType, opts)
 }
 
 func redact(key string, err error) error {

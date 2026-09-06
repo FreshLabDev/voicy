@@ -14,7 +14,11 @@ Keep Voicy minimal, private by default, and production-minded.
 ## Product Boundaries
 
 - STT is Deepgram only. File uploads use prerecorded Listen. No Whisper.
-- DM: any voice or video note is transcribed.
+- DM: voice, video notes and audio files are transcribed. Video and documents
+  need an explicit `/v` so no Deepgram call is spent on a file shared for some
+  other reason.
+- User-facing text lives in `internal/i18n/translations.json`, never inline in
+  Go. Every key must exist in every offered language.
 - Groups: only `/v` (public) or `/vp` (ephemeral, requester-only) as a reply
   to that media. Bare group voices stay quiet.
 - Cache key is Telegram `file_id`. Store id + transcript, never audio bytes.

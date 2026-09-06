@@ -8,6 +8,56 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-beta.1 - 2026-09-06
+
+Voicy speaks the sixteen languages the bot family shares, transcribes audio
+files and video rather than only voice messages, and no longer holds a
+recording in memory to do it.
+
+### Added
+
+- Sixteen interface languages, matching the set searchy and vido offer. Strings
+  moved out of Go into `internal/i18n/translations.json`, and the picker shows
+  each language by its own name. Ukrainian and Belarusian used to collapse into
+  Russian, which also meant Voicy overwrote a person's real choice in the shared
+  Core language hub with a coarser one.
+- Command descriptions are published per language through `setMyCommands`, so
+  the command menu is no longer English for everyone.
+- Audio files, video and documents are transcribed, not just voice messages and
+  circles. In a direct chat, voice, circles and audio files are still handled
+  without being asked; video and documents wait for an explicit `/v`, so a
+  Deepgram call is never spent on a file shared for some other reason. A
+  document is accepted on its MIME type or file name and refused with a plain
+  answer when it carries no sound.
+- ffmpeg reduces video, and any media above `EXTRACT_ABOVE_BYTES`, to a 16 kHz
+  mono Opus track before Deepgram sees it. This is what Deepgram recommends for
+  large video, and it keeps a large upload from crossing the network twice.
+- `FFMPEG_PATH` (default `ffmpeg`, empty disables extraction),
+  `EXTRACT_ABOVE_BYTES` (default 20 MB) and `MEDIA_TMP_DIR`.
+- Statistics count files as their own category next to voice messages and
+  circles.
+
+### Changed
+
+- Media is streamed to a temporary file and read from there, instead of being
+  buffered whole in memory. That buffering, not Deepgram, was what capped
+  `MAX_MEDIA_BYTES`: with several transcriptions running at once the ceiling
+  was memory. Deepgram's own limit is 2 GB, and the Deepgram request body is now
+  streamed from disk too, so a retry can replay a body of any size.
+- The Telegram client exposes `DownloadToFile` rather than returning bytes.
+
+### Migrations
+
+- `migrations/005_media_kinds.sql` widens the transcript kind constraint to the
+  new media types and adds `user_stats.file_count`.
+
+### Operations
+
+- The image now installs ffmpeg. Without it, video is sent to Deepgram
+  unextracted and may not transcribe at all; the bot logs a warning at startup.
+- `MAX_MEDIA_BYTES` can be raised well beyond the previous memory-bound value
+  when a self-hosted Bot API server is in use.
+
 ## v0.0.1-alpha.10 - 2026-09-06
 
 Corrects how Voicy reads media from the self-hosted Bot API server, before that

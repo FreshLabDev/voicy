@@ -236,3 +236,91 @@ func TestDecideMyChatMemberIsMembership(t *testing.T) {
 		t.Fatalf("action = %+v", act)
 	}
 }
+
+// An audio file in a direct chat is speech the user meant to send, so it is
+// transcribed without being asked.
+func TestDecideDMAudioFileTranscribes(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 100,
+	  "message": {
+	    "message_id": 30,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": 7, "type": "private"},
+	    "audio": {"file_id": "A1", "file_unique_id": "UA", "duration": 200, "mime_type": "audio/mpeg", "file_name": "talk.mp3", "file_size": 3000000}
+	  }
+	}`)
+	act := Decide(upd, "voicybot")
+	if act.Kind != Transcribe || act.Media == nil || act.Media.Kind != "audio" || act.Media.IsVideo {
+		t.Fatalf("%+v", act)
+	}
+	if act.Media.FileName != "talk.mp3" || act.Media.Duration != 200 {
+		t.Fatalf("media = %+v", act.Media)
+	}
+}
+
+// A video or a document is not automatically speech. Answering every file with
+// a Deepgram call would be surprising and expensive, so they wait for /v.
+func TestDecideDMVideoAndDocumentWaitForCommand(t *testing.T) {
+	for _, raw := range []string{
+		`{"update_id":101,"message":{"message_id":31,"from":{"id":7,"is_bot":false},"chat":{"id":7,"type":"private"},"video":{"file_id":"V1","file_unique_id":"UV","duration":30,"mime_type":"video/mp4","file_size":900000}}}`,
+		`{"update_id":102,"message":{"message_id":32,"from":{"id":7,"is_bot":false},"chat":{"id":7,"type":"private"},"document":{"file_id":"D1","file_unique_id":"UD","mime_type":"audio/x-wav","file_name":"rec.wav","file_size":900000}}}`,
+	} {
+		if act := Decide(mustUpdate(t, raw), "voicybot"); act.Kind != Ignore {
+			t.Fatalf("kind = %s for %s", act.Kind, raw)
+		}
+	}
+}
+
+// The same video answered with /v is transcribed, and marked as video so the
+// audio track gets extracted before Deepgram sees it.
+func TestDecideVideoWithCommandIsVideoMedia(t *testing.T) {
+	upd := mustUpdate(t, `{
+	  "update_id": 103,
+	  "message": {
+	    "message_id": 33,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": -100, "type": "supergroup"},
+	    "text": "/v",
+	    "reply_to_message": {"message_id": 32, "video": {"file_id": "V2", "file_unique_id": "UV2", "duration": 90, "mime_type": "video/mp4", "file_size": 40000000}}
+	  }
+	}`)
+	act := Decide(upd, "voicybot")
+	if act.Kind != Transcribe || act.Media == nil || act.Media.Kind != "video" || !act.Media.IsVideo {
+		t.Fatalf("%+v", act)
+	}
+	if act.Visibility != Public {
+		t.Fatalf("visibility = %s", act.Visibility)
+	}
+}
+
+// A zip is not speech. In a direct chat that is worth saying out loud; in a
+// group it stays quiet like every other unhandled message.
+func TestDecideRejectsNonMediaDocuments(t *testing.T) {
+	dm := mustUpdate(t, `{
+	  "update_id": 104,
+	  "message": {
+	    "message_id": 34,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": 7, "type": "private"},
+	    "text": "/v",
+	    "reply_to_message": {"message_id": 33, "document": {"file_id": "Z1", "file_unique_id": "UZ", "mime_type": "application/zip", "file_name": "photos.zip", "file_size": 100}}
+	  }
+	}`)
+	if act := Decide(dm, "voicybot"); act.Kind != Unsupported {
+		t.Fatalf("dm kind = %s", act.Kind)
+	}
+
+	group := mustUpdate(t, `{
+	  "update_id": 105,
+	  "message": {
+	    "message_id": 35,
+	    "from": {"id": 7, "is_bot": false, "first_name": "A"},
+	    "chat": {"id": -100, "type": "supergroup"},
+	    "text": "/v",
+	    "reply_to_message": {"message_id": 34, "document": {"file_id": "Z2", "file_unique_id": "UZ2", "mime_type": "application/zip", "file_name": "photos.zip", "file_size": 100}}
+	  }
+	}`)
+	if act := Decide(group, "voicybot"); act.Kind != Ignore {
+		t.Fatalf("group kind = %s", act.Kind)
+	}
+}

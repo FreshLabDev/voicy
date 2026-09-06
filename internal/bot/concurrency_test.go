@@ -28,7 +28,7 @@ func newBlockingSTT() *blockingSTT {
 	return &blockingSTT{release: make(chan struct{}), arrived: make(chan struct{}, 64)}
 }
 
-func (s *blockingSTT) Transcribe(ctx context.Context, _ []byte, _ string, _ deepgram.Options) (deepgram.Result, error) {
+func (s *blockingSTT) Transcribe(ctx context.Context, _ string, _ string, _ deepgram.Options) (deepgram.Result, error) {
 	s.mu.Lock()
 	s.entered++
 	if s.entered > s.peak {

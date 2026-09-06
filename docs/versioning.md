@@ -17,7 +17,7 @@ v0.0.1-alpha.7  Bot API 10.3 ephemeral contract, rich HTML, self-healing jobs
 v0.0.1-alpha.8  concurrent updates, Deepgram retries, cached statistics
 v0.0.1-alpha.9  self-hosted Bot API, Prometheus metrics, delivery guard
 v0.0.1-alpha.10 Bot API media fetched over the network, not a shared volume
-v0.0.1-beta.1   live-tested with limited users
+v0.0.1-beta.1   sixteen languages, audio files and video, streamed media
 v0.0.1-rc.1     public release candidate
 v0.0.1          first public MVP on this line
 ```

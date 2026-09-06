@@ -29,6 +29,9 @@ type Config struct {
 	MaxConcurrentJobs   int
 	StatsTimezone       string
 	StatsCacheTTL       time.Duration
+	FFmpegPath          string
+	MediaTmpDir         string
+	ExtractAboveBytes   int64
 }
 
 func Load() (Config, error) {
@@ -63,6 +66,16 @@ func Load() (Config, error) {
 	if cfg.StatsCacheTTL, err = time.ParseDuration(valueOrDefault("STATS_CACHE_TTL", "5m")); err != nil || cfg.StatsCacheTTL <= 0 {
 		return Config{}, fmt.Errorf("STATS_CACHE_TTL must be a positive duration")
 	}
+	if cfg.ExtractAboveBytes, err = strconv.ParseInt(valueOrDefault("EXTRACT_ABOVE_BYTES", "20971520"), 10, 64); err != nil || cfg.ExtractAboveBytes <= 0 {
+		return Config{}, fmt.Errorf("EXTRACT_ABOVE_BYTES must be a positive integer")
+	}
+	// An empty FFMPEG_PATH disables extraction; media then goes to Deepgram as
+	// Telegram stored it.
+	cfg.FFmpegPath = strings.TrimSpace(os.Getenv("FFMPEG_PATH"))
+	if _, set := os.LookupEnv("FFMPEG_PATH"); !set {
+		cfg.FFmpegPath = "ffmpeg"
+	}
+	cfg.MediaTmpDir = strings.TrimSpace(os.Getenv("MEDIA_TMP_DIR"))
 	cfg.StatsTimezone = valueOrDefault("STATS_TIMEZONE", "Europe/Kyiv")
 	if !validTimezone(cfg.StatsTimezone) {
 		return Config{}, fmt.Errorf("STATS_TIMEZONE must be an IANA zone name such as Europe/Kyiv")

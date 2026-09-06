@@ -5,23 +5,25 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/FreshLabDev/voicy/internal/media"
 	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 type Kind string
 
 const (
-	Ignore     Kind = "ignore"
-	Start      Kind = "start"
-	Stats      Kind = "stats"
-	Help       Kind = "help"
-	About      Kind = "about"
-	Retrieve   Kind = "retrieve"
-	Transcribe Kind = "transcribe"
-	Nudge      Kind = "nudge"
-	Callback   Kind = "callback"
-	Language   Kind = "language"
-	Membership Kind = "membership"
+	Ignore      Kind = "ignore"
+	Start       Kind = "start"
+	Stats       Kind = "stats"
+	Help        Kind = "help"
+	About       Kind = "about"
+	Retrieve    Kind = "retrieve"
+	Transcribe  Kind = "transcribe"
+	Nudge       Kind = "nudge"
+	Callback    Kind = "callback"
+	Language    Kind = "language"
+	Membership  Kind = "membership"
+	Unsupported Kind = "unsupported"
 )
 
 type Visibility string
@@ -37,7 +39,10 @@ type Media struct {
 	Kind         string
 	Duration     int
 	MimeType     string
+	FileName     string
 	FileSize     int64
+	// IsVideo marks media whose audio has to be demuxed out of pictures.
+	IsVideo bool
 }
 
 type Action struct {
@@ -180,12 +185,22 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 		}
 	}
 
-	if media := mediaFrom(msg); media != nil {
+	if attachment, ok := msg.Media(); ok {
 		if !private {
 			return withKind(base, Ignore)
 		}
+		// A document or a video in a direct chat is not automatically speech:
+		// answering every file with a Deepgram call would be both surprising and
+		// expensive, so those wait for an explicit /v.
+		if !media.Implicit(attachment.Kind) {
+			return withKind(base, Ignore)
+		}
+		accepted, isVideo := media.Transcribable(attachment.Kind, attachment.MimeType, attachment.FileName)
+		if !accepted {
+			return withKind(base, Unsupported)
+		}
 		act := withKind(base, Transcribe)
-		act.Media = media
+		act.Media = mediaOf(attachment, isVideo)
 		act.ReplyToID = msg.MessageID
 		return act
 	}
@@ -207,32 +222,43 @@ func validToken(token string) bool {
 	return true
 }
 
+// transcribeCommand handles an explicit /v or /vp. Unlike a bare attachment it
+// accepts every kind, because the user asked for this one by name.
 func transcribeCommand(base Action, msg *telegram.Message, private bool, vis Visibility) Action {
-	media := mediaFrom(msg.ReplyToMessage)
-	if media == nil {
+	attachment, ok := msg.ReplyToMessage.Media()
+	if !ok {
 		if private {
 			return withKind(base, Nudge)
 		}
 		return withKind(base, Ignore)
 	}
+	accepted, isVideo := media.Transcribable(attachment.Kind, attachment.MimeType, attachment.FileName)
+	if !accepted {
+		if private {
+			return withKind(base, Unsupported)
+		}
+		return withKind(base, Ignore)
+	}
 	act := withKind(base, Transcribe)
 	act.Visibility = vis
-	act.Media = media
+	act.Media = mediaOf(attachment, isVideo)
 	if msg.ReplyToMessage != nil {
 		act.ReplyToID = msg.ReplyToMessage.MessageID
 	}
 	return act
 }
 
-func mediaFrom(m *telegram.Message) *Media {
-	if m == nil {
-		return nil
+func mediaOf(ref telegram.MediaRef, isVideo bool) *Media {
+	return &Media{
+		FileID:       ref.FileID,
+		FileUniqueID: ref.FileUniqueID,
+		Kind:         ref.Kind,
+		Duration:     ref.Duration,
+		MimeType:     ref.MimeType,
+		FileName:     ref.FileName,
+		FileSize:     ref.FileSize,
+		IsVideo:      isVideo,
 	}
-	id, uid, kind, dur, mime, size, ok := m.Media()
-	if !ok {
-		return nil
-	}
-	return &Media{FileID: id, FileUniqueID: uid, Kind: kind, Duration: dur, MimeType: mime, FileSize: size}
 }
 
 func withKind(a Action, k Kind) Action {

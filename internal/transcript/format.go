@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/i18n"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
 )
@@ -52,11 +53,8 @@ func RichParts(res deepgram.Result, lang string, s settings.Settings) []string {
 			prefix = append(prefix, meta)
 		}
 		if len(chunks) > 1 {
-			if lang == "ru" {
-				prefix = append(prefix, "<i>Часть "+strconv.Itoa(i+1)+"/"+strconv.Itoa(len(chunks))+"</i>")
-			} else {
-				prefix = append(prefix, "<i>Part "+strconv.Itoa(i+1)+"/"+strconv.Itoa(len(chunks))+"</i>")
-			}
+			label := i18n.T(lang, "part.label", "n", strconv.Itoa(i+1), "total", strconv.Itoa(len(chunks)))
+			prefix = append(prefix, "<i>"+html.EscapeString(label)+"</i>")
 		}
 		body := formatBody(chunk, s.Quote)
 		if len(prefix) > 0 {
@@ -77,11 +75,8 @@ func displayText(res deepgram.Result, lang string) string {
 		if text == "" {
 			continue
 		}
-		label := "Speaker "
-		if lang == "ru" {
-			label = "Говорящий "
-		}
-		sections = append(sections, label+strconv.Itoa(turn.Speaker+1)+":\n"+text)
+		label := i18n.T(lang, "speaker.label", "n", strconv.Itoa(turn.Speaker+1))
+		sections = append(sections, label+":\n"+text)
 	}
 	return strings.Join(sections, "\n\n")
 }
@@ -135,31 +130,18 @@ func MetaLine(res deepgram.Result, lang string, s settings.Settings) string {
 	}
 	var parts []string
 	if code := strings.TrimSpace(res.Language); code != "" {
-		code = html.EscapeString(code)
-		if lang == "ru" {
-			parts = append(parts, "Язык: "+code)
-		} else {
-			parts = append(parts, "Language: "+code)
-		}
+		parts = append(parts, i18n.T(lang, "meta.language")+": "+html.EscapeString(code))
 	}
 	if res.Duration > 0 {
-		dur := ftoa(res.Duration) + " s"
+		unit, value := i18n.T(lang, "unit.sec"), ftoa(res.Duration)
 		if res.Duration >= 60 {
-			dur = ftoa(res.Duration/60) + " min"
+			unit, value = i18n.T(lang, "unit.min"), ftoa(res.Duration/60)
 		}
-		if lang == "ru" {
-			parts = append(parts, "Длительность: "+dur)
-		} else {
-			parts = append(parts, "Duration: "+dur)
-		}
+		parts = append(parts, i18n.T(lang, "meta.duration")+": "+value+" "+unit)
 	}
 	if res.Confidence > 0 {
 		pct := strconv.Itoa(int(res.Confidence*100 + 0.5))
-		if lang == "ru" {
-			parts = append(parts, "Точность: "+pct+"%")
-		} else {
-			parts = append(parts, "Confidence: "+pct+"%")
-		}
+		parts = append(parts, i18n.T(lang, "meta.confidence")+": "+pct+"%")
 	}
 	if len(parts) == 0 {
 		return ""
@@ -190,277 +172,90 @@ func Panel(title, hint, body string) string {
 	return s
 }
 
-func HomeText(lang string) string {
-	if lang == "ru" {
-		return Panel("Voicy", "Голос в текст", Quote(
-			"Пришли голосовое или кружочек — верну текстом.\n"+
-				"В группе ответь <code>/v</code> (всем) или <code>/vp</code> (только тебе).",
-		))
-	}
-	return Panel("Voicy", "Voice to text", Quote(
-		"Send a voice or a video circle — I’ll send the text back.\n"+
-			"In a group, reply with <code>/v</code> (everyone) or <code>/vp</code> (just you).",
-	))
+// panelOf renders one localized panel from its three translation keys.
+func panelOf(lang, prefix string) string {
+	return Panel(i18n.T(lang, prefix+".title"), i18n.T(lang, prefix+".hint"), Quote(i18n.T(lang, prefix+".body")))
 }
 
-func HelpText(lang string) string {
-	if lang == "ru" {
-		return Panel("Справка", "Как пользоваться", Quote(
-			"• В личке: просто кинь войс или кружочек.\n"+
-				"• В группе: реплай <code>/v</code> — всем, <code>/vp</code> — только тебе.\n"+
-				"• Повтор того же файла отдаётся из кэша.",
-		))
-	}
-	return Panel("Help", "How it works", Quote(
-		"• In DM: send a voice or a video circle.\n"+
-			"• In a group: reply <code>/v</code> for everyone, <code>/vp</code> for you only.\n"+
-			"• The same file is served from cache.",
-	))
-}
+func HomeText(lang string) string     { return panelOf(lang, "home") }
+func HelpText(lang string) string     { return panelOf(lang, "help") }
+func AboutText(lang string) string    { return panelOf(lang, "about") }
+func LanguageText(lang string) string { return panelOf(lang, "lang") }
+func SettingsText(lang string) string { return panelOf(lang, "settings") }
+func StartText(lang string) string    { return HomeText(lang) }
 
 func StatsText(lang string, s stats.Snapshot, global bool) string {
-	title, hint := "Stats", "Successful transcripts only"
-	if lang == "ru" {
-		title, hint = "Статистика", "Только успешные расшифровки"
-	}
+	titleKey, hintKey := "stats.title.personal", "stats.hint.personal"
 	if global {
-		if lang == "ru" {
-			title, hint = "Статистика Voicy", "Все пользователи"
-		} else {
-			title, hint = "Voicy stats", "All users"
-		}
+		titleKey, hintKey = "stats.title.global", "stats.hint.global"
 	}
+	title, hint := i18n.T(lang, titleKey), i18n.T(lang, hintKey)
 	if s.Transcriptions == 0 {
-		if lang == "ru" {
-			return Panel(title, hint,
-				"Пока нет расшифровок. Пришли голосовое или кружочек.")
-		}
-		return Panel(title, hint,
-			"No transcripts yet. Send a voice or a video circle.")
+		return Panel(title, hint, i18n.T(lang, "stats.empty"))
+	}
+	// Thin spaces would be prettier, but a plain separator survives every client.
+	sep := ","
+	if lang == "ru" || lang == "uk" || lang == "be" {
+		sep = " "
 	}
 	peak := "—"
 	if s.PeakHour >= 0 {
 		peak = twoDigits(s.PeakHour) + ":00"
 	}
-	if lang == "ru" {
-		lines := []string{
-			"Расшифровок: " + number(s.Transcriptions, " "),
-			"Голосовые / кружки: " + number(s.Voice, " ") + " / " + number(s.VideoNotes, " "),
-			"Аудио: " + humanDuration(s.DurationSec, "ru"),
-			"Слов: " + number(s.Words, " "),
-			"Пиковое время: " + peak,
-		}
-		if global {
-			lines = append([]string{"Пользователей: " + number(s.Users, " ")}, lines...)
-		} else if s.LastLanguage != "" {
-			lines = append(lines, "Последний язык: "+html.EscapeString(s.LastLanguage))
-		}
-		return Panel(title, hint, Quote(strings.Join(lines, "\n")))
-	}
 	lines := []string{
-		"Transcripts: " + number(s.Transcriptions, ","),
-		"Voice / circles: " + number(s.Voice, ",") + " / " + number(s.VideoNotes, ","),
-		"Audio: " + humanDuration(s.DurationSec, "en"),
-		"Words: " + number(s.Words, ","),
-		"Peak time: " + peak,
+		i18n.T(lang, "stats.transcripts") + ": " + number(s.Transcriptions, sep),
+		i18n.T(lang, "stats.kinds") + ": " + number(s.Voice, sep) + " / " + number(s.VideoNotes, sep) + " / " + number(s.Files, sep),
+		i18n.T(lang, "stats.audio") + ": " + humanDuration(s.DurationSec, lang),
+		i18n.T(lang, "stats.words") + ": " + number(s.Words, sep),
+		i18n.T(lang, "stats.peak") + ": " + peak,
 	}
 	if global {
-		lines = append([]string{"Users: " + number(s.Users, ",")}, lines...)
+		lines = append([]string{i18n.T(lang, "stats.users") + ": " + number(s.Users, sep)}, lines...)
 	} else if s.LastLanguage != "" {
-		lines = append(lines, "Last language: "+html.EscapeString(s.LastLanguage))
+		lines = append(lines, i18n.T(lang, "stats.last_language")+": "+html.EscapeString(s.LastLanguage))
 	}
 	return Panel(title, hint, Quote(strings.Join(lines, "\n")))
 }
 
-func EmptySpeechText(lang string) string {
-	if lang == "ru" {
-		return "Не разобрал речь. Попробуй ещё раз чуть громче или короче."
-	}
-	return "I didn’t catch any speech. Try again a bit louder or shorter."
-}
-
-func StartText(lang string) string { return HomeText(lang) }
-
-func WorkingText(lang string) string {
-	if lang == "ru" {
-		return "Расшифровываю…"
-	}
-	return "Transcribing…"
-}
-
-func NudgeText(lang string) string {
-	if lang == "ru" {
-		return "Пришли голосовое или кружочек, либо открой /start."
-	}
-	return "Send a voice or a video circle, or open /start."
-}
-
-func ErrorText(lang string) string {
-	if lang == "ru" {
-		return "Не получилось расшифровать. Попробуй ещё раз."
-	}
-	return "Something went wrong while trying to transcribe that. Please try again."
-}
-
-func TooLargeText(lang string) string {
-	if lang == "ru" {
-		return "Это сообщение слишком большое или длинное для обработки. Попробуй более короткую запись."
-	}
-	return "This message is too large or too long to process. Please send a shorter recording."
-}
+func EmptySpeechText(lang string) string   { return i18n.T(lang, "msg.empty_speech") }
+func WorkingText(lang string) string       { return i18n.T(lang, "msg.working") }
+func ExtractingText(lang string) string    { return i18n.T(lang, "msg.extracting") }
+func NudgeText(lang string) string         { return i18n.T(lang, "msg.nudge") }
+func ErrorText(lang string) string         { return i18n.T(lang, "msg.error") }
+func TooLargeText(lang string) string      { return i18n.T(lang, "msg.too_large") }
+func UnsupportedText(lang string) string   { return i18n.T(lang, "msg.unsupported") }
+func SentPrivatelyText(lang string) string { return i18n.T(lang, "msg.sent_privately") }
+func NotYoursText(lang string) string      { return i18n.T(lang, "msg.not_yours") }
 
 func PrivateTranscriptLinkText(lang, username, token string) string {
 	username = strings.TrimPrefix(strings.TrimSpace(username), "@")
 	url := "https://t.me/" + username + "?start=transcript_" + token
-	if lang == "ru" {
-		return "Расшифровка готова, но не помещается в приватный ответ группы. <a href=\"" + html.EscapeString(url) + "\">Открыть целиком в Voicy</a>."
-	}
-	return "The transcript is ready but does not fit in a private group reply. <a href=\"" + html.EscapeString(url) + "\">Open it in Voicy</a>."
+	return i18n.T(lang, "msg.private_link", "url", html.EscapeString(url))
 }
 
-func SentPrivatelyText(lang string) string {
-	if lang == "ru" {
-		return "Готово. Полная расшифровка отправлена в личный чат с Voicy."
-	}
-	return "Done. The full transcript was sent to your private chat with Voicy."
-}
-
-func NotYoursText(lang string) string {
-	if lang == "ru" {
-		return "Это не твоё меню."
-	}
-	return "This isn’t your menu."
-}
-
-func LanguageText(lang string) string {
-	if lang == "ru" {
-		return Panel("Язык", "Интерфейс бота", Quote("Выбери язык интерфейса."))
-	}
-	return Panel("Language", "Bot interface", Quote("Pick the interface language."))
-}
-
-func SettingsText(lang string) string {
-	if lang == "ru" {
-		return Panel("Настройки", "Форматирование и вывод", Quote(
-			"Расшифровка: применяются к новым файлам.\nВывод: применяется сразу.",
-		))
-	}
-	return Panel("Settings", "Formatting and output", Quote(
-		"Transcription: applies to new files.\nOutput: applies immediately.",
-	))
-}
-
-func AboutText(lang string) string {
-	if lang == "ru" {
-		return Panel("О боте", "Voicy", Quote(
-			"Голосовые и кружочки — в текст.\nРаспознавание: Deepgram nova-3.\nЛицензия: Apache-2.0.",
-		))
-	}
-	return Panel("About", "Voicy", Quote(
-		"Voice messages and circles — as text.\nRecognition: Deepgram nova-3.\nLicense: Apache-2.0.",
-	))
-}
-
-// SettingLabel is the display name of one toggle. Unknown keys fall back
-// to the raw key so an outdated callback cannot crash rendering.
+// SettingLabel is the display name of one toggle. An unknown key falls back to
+// the raw key so an outdated callback cannot crash rendering.
 func SettingLabel(lang, key string) string {
-	if lang == "ru" {
-		switch key {
-		case "smart_format":
-			return "Форматирование"
-		case "paragraphs":
-			return "Абзацы"
-		case "filler_words":
-			return "Слова-паразиты"
-		case "profanity_filter":
-			return "Фильтр мата"
-		case "diarize":
-			return "Говорящие"
-		case "quote":
-			return "Цитата"
-		case "meta":
-			return "Метаданные"
-		}
-		return key
-	}
-	switch key {
-	case "smart_format":
-		return "Formatting"
-	case "paragraphs":
-		return "Paragraphs"
-	case "filler_words":
-		return "Filler words"
-	case "profanity_filter":
-		return "Profanity filter"
-	case "diarize":
-		return "Speakers"
-	case "quote":
-		return "Quote"
-	case "meta":
-		return "Metadata"
+	if label := i18n.T(lang, "setting."+key); !strings.HasPrefix(label, "[") {
+		return label
 	}
 	return key
 }
 
-func BtnStats(lang string) string {
-	if lang == "ru" {
-		return "Статистика"
-	}
-	return "Stats"
-}
+func BtnStats(lang string) string    { return i18n.T(lang, "btn.stats") }
+func BtnHelp(lang string) string     { return i18n.T(lang, "btn.help") }
+func BtnClose(lang string) string    { return i18n.T(lang, "btn.close") }
+func BtnBack(lang string) string     { return i18n.T(lang, "btn.back") }
+func BtnLanguage(lang string) string { return i18n.T(lang, "btn.language") }
+func BtnSettings(lang string) string { return i18n.T(lang, "btn.settings") }
+func BtnAbout(lang string) string    { return i18n.T(lang, "btn.about") }
 
-func BtnHelp(lang string) string {
-	if lang == "ru" {
-		return "Справка"
-	}
-	return "Help"
-}
+func TabPersonal(lang string) string { return i18n.T(lang, "stats.tab.personal") }
+func TabGlobal(lang string) string   { return i18n.T(lang, "stats.tab.global") }
 
-func BtnClose(lang string) string {
-	if lang == "ru" {
-		return "Закрыть"
-	}
-	return "Close"
-}
-
-func BtnBack(lang string) string {
-	if lang == "ru" {
-		return "Назад"
-	}
-	return "Back"
-}
-
-func BtnLanguage(lang string) string {
-	if lang == "ru" {
-		return "Язык"
-	}
-	return "Language"
-}
-
-func BtnSettings(lang string) string {
-	if lang == "ru" {
-		return "Настройки"
-	}
-	return "Settings"
-}
-
-func BtnAbout(lang string) string {
-	if lang == "ru" {
-		return "О боте"
-	}
-	return "About"
-}
-
-func LangOf(code string) string {
-	code = strings.ToLower(strings.TrimSpace(code))
-	if i := strings.IndexByte(code, '-'); i > 0 {
-		code = code[:i]
-	}
-	if code == "ru" || code == "uk" || code == "be" {
-		return "ru"
-	}
-	return "en"
-}
+// LangOf normalizes a Telegram hint or a preference stored by a sibling bot to
+// a language Voicy can render.
+func LangOf(code string) string { return i18n.Resolve(code) }
 
 func normalizeTranscript(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
@@ -478,16 +273,9 @@ func humanDuration(seconds float64, lang string) string {
 		minutes = 1
 	}
 	if minutes < 60 {
-		if lang == "ru" {
-			return strconv.FormatInt(minutes, 10) + " мин"
-		}
-		return strconv.FormatInt(minutes, 10) + " min"
+		return strconv.FormatInt(minutes, 10) + " " + i18n.T(lang, "unit.min")
 	}
-	hours := float64(minutes) / 60
-	if lang == "ru" {
-		return ftoa(hours) + " ч"
-	}
-	return ftoa(hours) + " h"
+	return ftoa(float64(minutes)/60) + " " + i18n.T(lang, "unit.hour")
 }
 
 func number(value int64, separator string) string {
@@ -505,9 +293,7 @@ func twoDigits(value int) string {
 	return strconv.Itoa(value)
 }
 
-func itoa(n int64) string {
-	return strconv.FormatInt(n, 10)
-}
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func ftoa(v float64) string {
 	if v < 0 {

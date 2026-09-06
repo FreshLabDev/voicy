@@ -6,7 +6,7 @@
 |:--|:--|:--|
 | `/start` | DM | Owner-scoped family panel |
 | `/start` | group | Ephemeral panel |
-| `/v` | reply in group | Public transcript in the same topic |
+| `/v` | reply | Public transcript of any audio or video, in the same topic |
 | `/vp` | ephemeral reply in group | Requester-only transcript |
 | `/language [ru\|en]` | DM | Open or change shared interface language |
 | `/stats` | DM | Personal stats with a global tab |
@@ -15,6 +15,20 @@
 Bare group media and non-ephemeral group `/vp` stay silent. Unknown group
 commands stay silent. Menu callbacks include the owner ID and foreign taps only
 receive a short callback toast.
+
+## Media
+
+Voice messages, video circles and audio files are transcribed in a direct chat
+without being asked. Videos and documents are not: answering every file with a
+Deepgram call would be surprising and expensive, so they wait for an explicit
+`/v`. A document is accepted when its MIME type or file name looks like audio
+or video, and refused with a plain answer otherwise.
+
+Media is streamed to a temporary file and never held whole in memory. Video, and
+any other media above `EXTRACT_ABOVE_BYTES`, is reduced to a 16 kHz mono Opus
+track by ffmpeg before Deepgram sees it. Deepgram recommends exactly that for
+large video, and it keeps a large upload from crossing the network twice. Both
+the download and the extracted track are deleted when the job ends.
 
 ## Delivery
 
@@ -61,6 +75,9 @@ duplicate recognition work.
 
 Settings callbacks carry `set:<key>:<0|1>` and are idempotent. Interface
 language is shared through Core and falls back to the Telegram profile hint.
+Voicy renders the sixteen languages the fleet shares, so a preference set in
+searchy or vido is honoured here rather than collapsed into Russian or English.
+Command descriptions are published per language through `setMyCommands`.
 
 ## Message Safety
 
