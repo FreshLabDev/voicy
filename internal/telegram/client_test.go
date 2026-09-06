@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -245,5 +247,68 @@ func TestMessageMediaJSON(t *testing.T) {
 	id, uid, kind, dur, mime, size, ok := msg.Media()
 	if !ok || id != "f1" || uid != "u1" || kind != "voice" || dur != 3 || mime != "audio/ogg" || size != 99 {
 		t.Fatalf("media = %s %s %s %d %s %d %v", id, uid, kind, dur, mime, size, ok)
+	}
+}
+
+// A local Bot API server started with TELEGRAM_LOCAL answers getFile with an
+// absolute path on its own filesystem. Reading it from the shared volume is
+// what lifts the cloud API's 20 MB ceiling.
+func TestDownloadReadsLocalBotAPIPath(t *testing.T) {
+	var httpCalls int
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		httpCalls++
+		_, _ = w.Write([]byte("SHOULD-NOT-BE-USED"))
+	})
+	dir := t.TempDir()
+	path := filepath.Join(dir, "voice.oga")
+	if err := os.WriteFile(path, []byte("LOCALBYTES"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.DownloadFile(context.Background(), path, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "LOCALBYTES" {
+		t.Fatalf("body = %q", got)
+	}
+	if httpCalls != 0 {
+		t.Fatal("an absolute path must be read from disk, not fetched over HTTP")
+	}
+	// The local server never cleans these up and the volume is shared.
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the file must be removed after reading, stat err = %v", err)
+	}
+}
+
+func TestDownloadRejectsOversizeLocalFile(t *testing.T) {
+	c := testClient(t, func(w http.ResponseWriter, _ *http.Request) {})
+	path := filepath.Join(t.TempDir(), "big.oga")
+	if err := os.WriteFile(path, make([]byte, 64), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.DownloadFile(context.Background(), path, 16); err == nil {
+		t.Fatal("an oversize local file must be rejected")
+	}
+	// A rejected file stays on disk: it was never consumed.
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stat = %v", err)
+	}
+}
+
+func TestDownloadStillUsesHTTPForRelativePaths(t *testing.T) {
+	var gotPath string
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte("REMOTE"))
+	})
+	got, err := c.DownloadFile(context.Background(), "voice/file_1.oga", 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "REMOTE" {
+		t.Fatalf("body = %q", got)
+	}
+	if !strings.HasSuffix(gotPath, "/voice/file_1.oga") {
+		t.Fatalf("path = %q", gotPath)
 	}
 }

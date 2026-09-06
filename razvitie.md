@@ -13,6 +13,8 @@ Voicy is a minimal private-by-default Telegram voice-to-text bot.
 - Only successful non-empty jobs increment personal and global statistics.
 - Health requires PostgreSQL, Telegram initialization, fresh polling, and no
   stuck received jobs.
+- A transcript is delivered at most once per Telegram update.
+- Telegram may be reached through a self-hosted Bot API server.
 
 The implementation and operational details live in `docs/architecture.md`,
 `docs/telegram.md`, and `docs/releases.md`.

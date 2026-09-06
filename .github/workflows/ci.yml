@@ -35,6 +35,33 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+  database:
+    name: Database tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: voicy
+          POSTGRES_PASSWORD: voicy
+          POSTGRES_DB: voicy_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U voicy -d voicy_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run database tests
+        env:
+          VOICY_TEST_DATABASE_URL: postgres://voicy:voicy@localhost:5432/voicy_test?sslmode=disable
+        run: go test -tags=integration -race ./internal/db/
+
   govulncheck:
     name: Vulnerability scan
     runs-on: ubuntu-latest

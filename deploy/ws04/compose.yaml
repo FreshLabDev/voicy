@@ -14,7 +14,15 @@ services:
       MIGRATIONS_DIR: /app/migrations
       HTTP_ADDR: :8080
       AUTO_MIGRATE: "true"
-    networks: [core_net]
+    # telegram_bot_api_net reaches the shared self-hosted Bot API server, the
+    # same one vido uses. The bind mount is that server's data directory: with
+    # TELEGRAM_LOCAL it answers getFile with an absolute path there, which is
+    # how media above the cloud API's 20 MB ceiling is read. It is writable so
+    # Voicy can delete a file after transcribing it; the local server never
+    # cleans them up on its own.
+    networks: [core_net, telegram_bot_api_net]
+    volumes:
+      - /opt/stacks/telegram-bot-api/data:/var/lib/telegram-bot-api
     logging:
       driver: json-file
       options:
@@ -31,3 +39,6 @@ networks:
   core_net:
     external: true
     name: core_net
+  telegram_bot_api_net:
+    external: true
+    name: telegram_bot_api_net

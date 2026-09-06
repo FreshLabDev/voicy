@@ -14,6 +14,11 @@ surface. PostgreSQL is its only durable store.
   stored in PostgreSQL.
 - Telegram is accessed through the first-party HTTP client in
   `internal/telegram`. There is no SDK and no webhook mode.
+- `TELEGRAM_API_BASE` selects the Bot API server. The shared self-hosted one on
+  `telegram_bot_api_net` runs with `TELEGRAM_LOCAL`, so `getFile` answers with an
+  absolute path in its data directory; Voicy reads the bytes from the mounted
+  volume and deletes the file, because a local server never reclaims them. The
+  cloud server keeps returning relative paths and is fetched over HTTP.
 - Speech recognition is Deepgram prerecorded Listen only. There is no streaming
   transport or draft-message path.
 
@@ -33,7 +38,10 @@ surface. PostgreSQL is its only durable store.
 7. The transcript and optional speaker turns are cached.
 8. Delivery uses `sendRichMessage` with an HTML `rich_message`. Each complete
    part is at most 32,768 characters and preserves replies and topics.
-9. The terminal job transition and user-stat increment commit together.
+9. Delivery is recorded on the job the moment the transcript is sent.
+10. The terminal job transition and user-stat increment commit together. If the
+    process loses the database between the two, the retry sees `delivered_at`
+    and closes the job instead of sending the transcript again.
 
 Empty and failed jobs are retained for operations but never increment user
 statistics. Terminal jobs and transcripts unused past `TRANSCRIPT_RETENTION`
@@ -59,7 +67,11 @@ are deleted by the hourly cleanup loop.
 - Statistics are served from an in-memory snapshot cache, so the peak-hour
   histogram cannot be triggered once per tab tap.
 - `/healthz` is unhealthy until Telegram initialization succeeds, polling is
-  fresh, PostgreSQL responds, and no received job is stuck for 15 minutes.
+  fresh, PostgreSQL responds, and no received job is stuck past
+  `JOB_STALE_AFTER`.
+- `/metrics` exposes what never becomes a job row: polling failures, Deepgram
+  retries, Telegram rate limits, and delivery errors. The `jobs` table remains
+  the durable record of per-transcription outcomes.
 
 ## Privacy
 
@@ -72,6 +84,7 @@ Markdown when possible, then DM, then an owner-bound deep link as recovery.
 
 - `cmd/voicy`: wiring, cleanup and reaper loops, HTTP server, shutdown.
 - `internal/httpx`: the tuned HTTP transport shared by Telegram and Deepgram.
+- `internal/metrics`: dependency-free Prometheus counters behind `/metrics`.
 - `internal/bot`: handlers, retries, cache and delivery orchestration.
 - `internal/config`: validated environment configuration.
 - `internal/db`: migrations, jobs, cache, settings, statistics.

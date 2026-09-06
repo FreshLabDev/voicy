@@ -17,6 +17,7 @@ import (
 	"github.com/FreshLabDev/voicy/internal/db"
 	"github.com/FreshLabDev/voicy/internal/decide"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
+	"github.com/FreshLabDev/voicy/internal/metrics"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
 	"github.com/FreshLabDev/voicy/internal/telegram"
@@ -42,6 +43,7 @@ type Store interface {
 	SaveTranscript(ctx context.Context, fileID, uniqueID, kind, variant string, res deepgram.Result) error
 	CreateJob(ctx context.Context, updateID, messageID, userID, chatID int64, kind, fileID, variant, retrievalToken string) (db.Job, error)
 	CompleteJob(ctx context.Context, id int64, status, errCode string, cacheHit bool, res deepgram.Result) error
+	MarkDelivered(ctx context.Context, id int64) error
 	FailUpdate(ctx context.Context, updateID int64, errCode string) error
 	UserSettings(ctx context.Context, userID int64) (settings.Settings, error)
 	SetSetting(ctx context.Context, userID int64, key string, value bool) (settings.Settings, error)
@@ -221,6 +223,7 @@ func (b *Bot) Run(ctx context.Context) error {
 				return nil
 			}
 			pollFailures++
+			metrics.PollFailures.Inc()
 			delay := time.Duration(pollFailures) * time.Second
 			if delay > 30*time.Second {
 				delay = 30 * time.Second
@@ -337,6 +340,7 @@ func (b *Bot) handleWithRetry(ctx context.Context, upd telegram.Update) {
 	for attempt := 1; attempt <= maxUpdateRetries; attempt++ {
 		err := b.Handle(ctx, upd)
 		if err == nil {
+			metrics.UpdatesHandled.Inc()
 			return
 		}
 		if ctx.Err() != nil {
@@ -350,6 +354,7 @@ func (b *Bot) handleWithRetry(ctx context.Context, upd telegram.Update) {
 			continue
 		}
 		b.log.Error("telegram update permanently failed; dropping", "update_id", upd.UpdateID, "attempts", maxUpdateRetries, "error", err)
+		metrics.UpdatesDropped.Inc()
 		if err := b.store.FailUpdate(ctx, upd.UpdateID, "retry_exhausted"); err != nil {
 			// The stale-job reaper closes this row later; losing the
 			// bookkeeping write is not a reason to stop serving users.
@@ -688,6 +693,13 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if job.Status == "sent" || job.Status == "empty" || job.Status == "failed" {
 		return nil
 	}
+	if job.Delivered {
+		// A previous attempt sent the transcript and then lost the database.
+		// Finish the bookkeeping instead of sending the same text again.
+		metrics.RedeliverySkips.Inc()
+		b.log.Warn("job already delivered; completing without resending", "update_id", act.UpdateID, "job_id", job.ID)
+		return b.completeDelivered(ctx, job.ID, act.Media.FileID, variant)
+	}
 
 	// The ephemeral placeholder has to be opened before anything slow: Telegram
 	// only accepts it within 15 seconds of the command.
@@ -707,12 +719,14 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 			Text: cached.Transcript, Language: cached.Language, Confidence: cached.Confidence,
 			Duration: cached.Duration, RequestID: cached.RequestID, WordCount: cached.WordCount, Turns: cached.Turns,
 		}
-		if err := b.deliver(ctx, act, lang, s, res, job.RetrievalToken, prog); err != nil {
+		metrics.CacheHits.Inc()
+		if err := b.deliverOnce(ctx, job.ID, act, lang, s, res, job.RetrievalToken, prog); err != nil {
 			return err
 		}
 		return b.completeJob(ctx, job.ID, "sent", "", true, res)
 	}
 
+	metrics.CacheMisses.Inc()
 	// Only a cache miss is slow enough to be worth announcing, so the direct
 	// chat placeholder and the typing pulse start here rather than above.
 	b.openDirectPlaceholder(ctx, act, lang, prog)
@@ -750,6 +764,7 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 		// A client-side deadline hint only; it never reaches the Deepgram query.
 		AudioSeconds: act.Media.Duration,
 	}
+	metrics.AudioSeconds.Add(int64(act.Media.Duration))
 	res, err := b.stt.Transcribe(ctx, audio, ctype, opts)
 	if err != nil {
 		b.log.Error("deepgram failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "kind", act.Media.Kind, "duration", act.Media.Duration, "error", err)
@@ -757,7 +772,8 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	}
 	if strings.TrimSpace(res.Text) == "" {
 		b.log.Info("empty transcript", "file_id", act.Media.FileID, "update_id", act.UpdateID)
-		if err := b.deliver(ctx, act, lang, s, res, job.RetrievalToken, prog); err != nil {
+		metrics.EmptyResults.Inc()
+		if err := b.deliverOnce(ctx, job.ID, act, lang, s, res, job.RetrievalToken, prog); err != nil {
 			return err
 		}
 		return b.completeJob(ctx, job.ID, "empty", "empty", false, res)
@@ -765,10 +781,41 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if err := b.store.SaveTranscript(ctx, act.Media.FileID, act.Media.FileUniqueID, act.Media.Kind, variant, res); err != nil {
 		return err
 	}
-	if err := b.deliver(ctx, act, lang, s, res, job.RetrievalToken, prog); err != nil {
+	if err := b.deliverOnce(ctx, job.ID, act, lang, s, res, job.RetrievalToken, prog); err != nil {
 		return err
 	}
 	return b.completeJob(ctx, job.ID, "sent", "", false, res)
+}
+
+// completeDelivered closes a job whose transcript was already sent. The cached
+// transcript is what the user received, so statistics stay accurate; if the
+// cache row is gone the job still reaches a terminal state, just uncounted.
+func (b *Bot) completeDelivered(ctx context.Context, jobID int64, fileID, variant string) error {
+	cached, ok, err := b.store.GetCached(ctx, fileID, variant)
+	if err != nil || !ok {
+		if err != nil {
+			b.log.Warn("cache lookup for a delivered job failed", "job_id", jobID, "error", err)
+		}
+		return b.completeJob(ctx, jobID, "sent", "delivered_uncounted", true, deepgram.Result{})
+	}
+	res := deepgram.Result{
+		Text: cached.Transcript, Language: cached.Language, Confidence: cached.Confidence,
+		Duration: cached.Duration, RequestID: cached.RequestID, WordCount: cached.WordCount, Turns: cached.Turns,
+	}
+	return b.completeJob(ctx, jobID, "sent", "", true, res)
+}
+
+// deliverOnce sends the transcript and immediately records that it reached the
+// user, so a later failure of the terminal transition cannot cause a resend.
+func (b *Bot) deliverOnce(ctx context.Context, jobID int64, act decide.Action, lang string, s settings.Settings, res deepgram.Result, token string, prog *progress) error {
+	if err := b.deliver(ctx, act, lang, s, res, token, prog); err != nil {
+		return err
+	}
+	if err := b.store.MarkDelivered(ctx, jobID); err != nil {
+		b.log.Error("marking a delivered job failed", "job_id", jobID, "error", err)
+	}
+	metrics.TranscriptsSent.Inc()
+	return nil
 }
 
 func retrievalToken() (string, error) {
@@ -798,6 +845,7 @@ func (b *Bot) completeJob(ctx context.Context, id int64, status, errCode string,
 }
 
 func (b *Bot) failJob(ctx context.Context, id int64, code string, act decide.Action, prog *progress, text string) error {
+	metrics.JobFailures.Inc(code)
 	if err := b.completeJob(ctx, id, "failed", code, false, deepgram.Result{}); err != nil {
 		return err
 	}

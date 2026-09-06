@@ -9,8 +9,13 @@ import (
 	"time"
 )
 
+// DefaultTelegramAPIBase is Telegram's own server. A self-hosted one is set
+// through TELEGRAM_API_BASE.
+const DefaultTelegramAPIBase = "https://api.telegram.org"
+
 type Config struct {
 	TelegramBotToken    string
+	TelegramAPIBase     string
 	DeepgramAPIKey      string
 	DatabaseURL         string
 	MigrationsDir       string
@@ -31,6 +36,7 @@ func Load() (Config, error) {
 		TelegramBotToken: strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
 		DeepgramAPIKey:   strings.TrimSpace(os.Getenv("DEEPGRAM_API_KEY")),
 		DatabaseURL:      strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		TelegramAPIBase:  strings.TrimRight(valueOrDefault("TELEGRAM_API_BASE", DefaultTelegramAPIBase), "/"),
 		MigrationsDir:    valueOrDefault("MIGRATIONS_DIR", "./migrations"),
 		HTTPAddr:         valueOrDefault("HTTP_ADDR", ":8080"),
 		LogLevel:         valueOrDefault("LOG_LEVEL", "info"),
@@ -60,6 +66,9 @@ func Load() (Config, error) {
 	cfg.StatsTimezone = valueOrDefault("STATS_TIMEZONE", "Europe/Kyiv")
 	if !validTimezone(cfg.StatsTimezone) {
 		return Config{}, fmt.Errorf("STATS_TIMEZONE must be an IANA zone name such as Europe/Kyiv")
+	}
+	if !strings.HasPrefix(cfg.TelegramAPIBase, "http://") && !strings.HasPrefix(cfg.TelegramAPIBase, "https://") {
+		return Config{}, fmt.Errorf("TELEGRAM_API_BASE must be an http or https URL")
 	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")

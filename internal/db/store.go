@@ -201,6 +201,10 @@ type Job struct {
 	ID             int64
 	Status         string
 	RetrievalToken string
+	// Delivered is true when a previous attempt already sent the transcript.
+	// Delivery and completion are separate writes, so a database failure between
+	// them makes the update retry; without this flag the retry sends a duplicate.
+	Delivered bool
 }
 
 func (s *Store) CreateJob(ctx context.Context, updateID, messageID, userID, chatID int64, kind, fileID, variant, retrievalToken string) (Job, error) {
@@ -209,9 +213,20 @@ func (s *Store) CreateJob(ctx context.Context, updateID, messageID, userID, chat
 			INSERT INTO jobs (telegram_update_id, telegram_message_id, telegram_user_id, chat_id, kind, file_id, variant, retrieval_token)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 			ON CONFLICT (telegram_update_id) DO UPDATE SET telegram_update_id = EXCLUDED.telegram_update_id
-			RETURNING id, status, retrieval_token`, updateID, messageID, userID, chatID, kind, fileID, variant, retrievalToken).
-		Scan(&job.ID, &job.Status, &job.RetrievalToken)
+			RETURNING id, status, retrieval_token, delivered_at IS NOT NULL`, updateID, messageID, userID, chatID, kind, fileID, variant, retrievalToken).
+		Scan(&job.ID, &job.Status, &job.RetrievalToken, &job.Delivered)
 	return job, err
+}
+
+// MarkDelivered records that the transcript reached the user. It runs
+// immediately after a successful send and before the terminal transition, so
+// the window in which a crash can cause a duplicate is one short statement
+// rather than a multi-statement transaction. Marking before sending was the
+// other option and was rejected: losing a transcript is worse for the user
+// than seeing it twice.
+func (s *Store) MarkDelivered(ctx context.Context, id int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE jobs SET delivered_at=now() WHERE id=$1 AND delivered_at IS NULL`, id)
+	return err
 }
 
 // CompleteJob moves a received job to a terminal state. The sent transition

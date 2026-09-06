@@ -11,11 +11,13 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/FreshLabDev/voicy/internal/httpx"
+	"github.com/FreshLabDev/voicy/internal/metrics"
 )
 
 type Client struct {
@@ -356,9 +358,20 @@ func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {
 	return resp.Result, nil
 }
 
+// DownloadFile fetches the media behind a getFile result.
+//
+// A local Bot API server started with TELEGRAM_LOCAL returns an absolute path
+// on its own filesystem instead of a relative one. When that directory is
+// mounted here the bytes are read straight from disk, which is both the
+// intended use of a local server and the only way past the cloud API's 20 MB
+// ceiling. The local server never cleans those files up, so a file read this
+// way is removed afterwards.
 func (c *Client) DownloadFile(ctx context.Context, filePath string, maxBytes int64) ([]byte, error) {
 	if maxBytes <= 0 {
 		return nil, fmt.Errorf("download limit must be positive")
+	}
+	if strings.HasPrefix(filePath, "/") {
+		return c.readLocalFile(filePath, maxBytes)
 	}
 	downloadCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -383,6 +396,39 @@ func (c *Client) DownloadFile(ctx context.Context, filePath string, maxBytes int
 		return nil, fmt.Errorf("telegram file exceeds %d bytes", maxBytes)
 	}
 	return body, nil
+}
+
+// readLocalFile reads a file produced by a local Bot API server. The path comes
+// from getFile, never from user input.
+func (c *Client) readLocalFile(path string, maxBytes int64) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("local bot api file unavailable: %w", err)
+	}
+	if info.Size() > maxBytes {
+		return nil, fmt.Errorf("telegram file exceeds %d bytes", maxBytes)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read local bot api file: %w", err)
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("telegram file exceeds %d bytes", maxBytes)
+	}
+	// Best effort: a local server keeps every downloaded file forever, and the
+	// volume is shared with the other bots.
+	_ = os.Remove(path)
+	return body, nil
+}
+
+// LogOut releases the token from the current Bot API server so it can be used
+// on another one. Telegram refuses to log back in to the cloud server for ten
+// minutes afterwards, so this is only ever called deliberately.
+func (c *Client) LogOut(ctx context.Context) error {
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	return c.post(ctx, "logOut", map[string]any{}, &resp)
 }
 
 func (c *Client) get(ctx context.Context, method string, values url.Values, out any) error {
@@ -461,6 +507,11 @@ func (c *Client) do(method string, req *http.Request, out any) (time.Duration, e
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		apiErr := parseAPIError(method, resp.StatusCode, resp.Body)
+		if apiErr.StatusCode == http.StatusTooManyRequests {
+			metrics.TelegramLimited.Inc(method)
+		} else {
+			metrics.TelegramErrors.Inc(method)
+		}
 		return apiErr.RetryAfter, apiErr
 	}
 	if out == nil {

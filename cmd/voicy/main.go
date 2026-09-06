@@ -16,6 +16,7 @@ import (
 	"github.com/FreshLabDev/voicy/internal/db"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
 	"github.com/FreshLabDev/voicy/internal/health"
+	"github.com/FreshLabDev/voicy/internal/metrics"
 	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
@@ -53,6 +54,12 @@ func run(log *slog.Logger) error {
 	}
 
 	tg := telegram.NewClient(cfg.TelegramBotToken)
+	tg.SetAPIBase(cfg.TelegramAPIBase)
+	if cfg.TelegramAPIBase != config.DefaultTelegramAPIBase {
+		// A local server lifts the cloud API's 20 MB getFile ceiling and returns
+		// files by absolute path on a shared volume.
+		log.Info("using a self-hosted bot api server", "base", cfg.TelegramAPIBase)
+	}
 	stt := deepgram.New(cfg.DeepgramAPIKey)
 	store.SetStatsTimezone(cfg.StatsTimezone)
 	b := bot.New(store, tg, stt, log)
@@ -62,6 +69,7 @@ func run(log *slog.Logger) error {
 
 	started := time.Now()
 	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", metrics.Handler())
 	mux.Handle("/healthz", health.New(store, b.LastPoll, b.Initialized, started, cfg.JobStaleAfter, health.Build{
 		Version: version, Commit: commit, Date: date,
 	}, log))
@@ -142,6 +150,7 @@ func reaperLoop(ctx context.Context, store *db.Store, staleAfter time.Duration, 
 		case err != nil:
 			log.Warn("stale job reaper failed", "error", err)
 		case reaped > 0:
+			metrics.StaleJobsReaped.Add(reaped)
 			log.Warn("failed stale jobs", "count", reaped, "stale_after", staleAfter.String())
 		}
 		select {
