@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/FreshLabDev/voicy/internal/httpx"
 )
 
 type Client struct {
@@ -25,10 +27,14 @@ type Client struct {
 }
 
 func NewClient(token string) *Client {
+	c := httpx.New()
+	// Long polling and file downloads set their own deadlines; this is the
+	// backstop for a request that somehow escapes both.
+	c.Timeout = 5 * time.Minute
 	return &Client{
 		token:   token,
 		apiBase: "https://api.telegram.org",
-		http:    &http.Client{Timeout: 2 * time.Minute},
+		http:    c,
 		timeout: 30 * time.Second,
 		sleep:   sleep,
 	}
@@ -238,6 +244,28 @@ func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, t
 		"text":                 text,
 		"parse_mode":           "HTML",
 		"link_preview_options": noLinkPreview,
+	}
+	if markup != nil {
+		req["reply_markup"] = markup
+	}
+	var resp struct {
+		OK bool `json:"ok"`
+	}
+	err := c.post(ctx, "editMessageText", req, &resp)
+	if messageNotModified(err) {
+		return nil
+	}
+	return err
+}
+
+// EditMessageRichHTML replaces an ordinary message with rich content. It turns
+// the "Transcribing…" placeholder in a direct chat into the transcript itself,
+// so the user watches one message instead of waiting on an empty screen.
+func (c *Client) EditMessageRichHTML(ctx context.Context, chatID, messageID int64, body string, markup *InlineKeyboardMarkup) error {
+	req := map[string]any{
+		"chat_id":      chatID,
+		"message_id":   messageID,
+		"rich_message": richHTML(body),
 	}
 	if markup != nil {
 		req["reply_markup"] = markup

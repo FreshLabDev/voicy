@@ -21,6 +21,9 @@ type Config struct {
 	MaxMediaBytes       int64
 	MaxMediaDuration    time.Duration
 	JobStaleAfter       time.Duration
+	MaxConcurrentJobs   int
+	StatsTimezone       string
+	StatsCacheTTL       time.Duration
 }
 
 func Load() (Config, error) {
@@ -48,6 +51,16 @@ func Load() (Config, error) {
 	if cfg.JobStaleAfter, err = time.ParseDuration(valueOrDefault("JOB_STALE_AFTER", "30m")); err != nil || cfg.JobStaleAfter <= 0 {
 		return Config{}, fmt.Errorf("JOB_STALE_AFTER must be a positive duration")
 	}
+	if cfg.MaxConcurrentJobs, err = strconv.Atoi(valueOrDefault("MAX_CONCURRENT_JOBS", "4")); err != nil || cfg.MaxConcurrentJobs < 1 || cfg.MaxConcurrentJobs > 64 {
+		return Config{}, fmt.Errorf("MAX_CONCURRENT_JOBS must be an integer between 1 and 64")
+	}
+	if cfg.StatsCacheTTL, err = time.ParseDuration(valueOrDefault("STATS_CACHE_TTL", "5m")); err != nil || cfg.StatsCacheTTL <= 0 {
+		return Config{}, fmt.Errorf("STATS_CACHE_TTL must be a positive duration")
+	}
+	cfg.StatsTimezone = valueOrDefault("STATS_TIMEZONE", "Europe/Kyiv")
+	if !validTimezone(cfg.StatsTimezone) {
+		return Config{}, fmt.Errorf("STATS_TIMEZONE must be an IANA zone name such as Europe/Kyiv")
+	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
 	}
@@ -58,6 +71,24 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 	return cfg, nil
+}
+
+// validTimezone keeps the value inside the IANA character set. PostgreSQL is
+// the one that resolves the zone, and it receives the name as a bound
+// parameter, so this is a readability guard rather than a security boundary.
+func validTimezone(tz string) bool {
+	if tz == "" || len(tz) > 64 {
+		return false
+	}
+	for _, r := range tz {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '/', r == '_', r == '-', r == '+':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func valueOrDefault(key, fallback string) string {

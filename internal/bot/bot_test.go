@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/FreshLabDev/voicy/internal/db"
@@ -20,6 +21,7 @@ import (
 )
 
 type fakeStore struct {
+	mu        sync.Mutex
 	cached    map[string]db.Cached
 	saved     []string
 	savedVar  []string
@@ -40,10 +42,14 @@ func (f *fakeStore) cfg(userID int64) settings.Settings {
 }
 
 func (f *fakeStore) Touch(context.Context, telegram.User, *telegram.Chat) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.touched++
 	return nil
 }
 func (f *fakeStore) GetCached(_ context.Context, id, variant string) (db.Cached, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.cached == nil {
 		return db.Cached{}, false, nil
 	}
@@ -54,6 +60,8 @@ func (f *fakeStore) TranscriptByToken(context.Context, int64, string) (db.Cached
 	return db.Cached{}, false, nil
 }
 func (f *fakeStore) SaveTranscript(_ context.Context, fileID, _, _, variant string, res deepgram.Result) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.saved = append(f.saved, fileID)
 	f.savedVar = append(f.savedVar, variant)
 	if f.cached == nil {
@@ -66,6 +74,8 @@ func (f *fakeStore) SaveTranscript(_ context.Context, fileID, _, _, variant stri
 	return nil
 }
 func (f *fakeStore) CreateJob(_ context.Context, updateID, _, _, _ int64, _, _, _, token string) (db.Job, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.jobs == nil {
 		f.jobs = map[int64]string{}
 	}
@@ -76,6 +86,8 @@ func (f *fakeStore) CreateJob(_ context.Context, updateID, _, _, _ int64, _, _, 
 	return db.Job{ID: updateID, Status: "received", RetrievalToken: token}, nil
 }
 func (f *fakeStore) CompleteJob(_ context.Context, id int64, status, _ string, _ bool, res deepgram.Result) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.jobs == nil {
 		f.jobs = map[int64]string{}
 	}
@@ -87,9 +99,13 @@ func (f *fakeStore) CompleteJob(_ context.Context, id int64, status, _ string, _
 }
 func (f *fakeStore) FailUpdate(context.Context, int64, string) error { return nil }
 func (f *fakeStore) UserSettings(_ context.Context, userID int64) (settings.Settings, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.cfg(userID), nil
 }
 func (f *fakeStore) SetSetting(_ context.Context, userID int64, key string, value bool) (settings.Settings, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	s := f.cfg(userID)
 	if _, ok := settings.SpecOf(key); !ok {
 		return s, fmt.Errorf("unknown setting %q", key)
@@ -106,6 +122,8 @@ func (f *fakeStore) SetSetting(_ context.Context, userID int64, key string, valu
 	return next, nil
 }
 func (f *fakeStore) SetLanguage(_ context.Context, userID int64, lang string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.langs == nil {
 		f.langs = map[int64]string{}
 	}
@@ -113,6 +131,8 @@ func (f *fakeStore) SetLanguage(_ context.Context, userID int64, lang string) er
 	return nil
 }
 func (f *fakeStore) EffectiveLanguage(_ context.Context, userID int64) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	lang, ok := f.langs[userID]
 	return lang, ok && lang != "", nil
 }
@@ -122,13 +142,20 @@ func (f *fakeStore) UserStats(context.Context, int64) (stats.Snapshot, error) {
 func (f *fakeStore) GlobalStats(context.Context) (stats.Snapshot, error) {
 	return stats.EmptySnapshot(), nil
 }
-func (f *fakeStore) Offset(context.Context) (int64, error) { return f.offset, nil }
+func (f *fakeStore) Offset(context.Context) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.offset, nil
+}
 func (f *fakeStore) AdvanceOffset(_ context.Context, off int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.offset = off
 	return nil
 }
 
 type fakeTG struct {
+	mu             sync.Mutex
 	sent           []string
 	ephemeral      []string
 	ephemeralEdits []string
@@ -143,6 +170,9 @@ type fakeTG struct {
 	gotFile        int
 	calls          []string
 	richErr        error
+	richEdits      []string
+	chatActions    int
+	onRich         func()
 }
 
 func (f *fakeTG) DeleteWebhook(context.Context) error                               { return nil }
@@ -151,75 +181,135 @@ func (f *fakeTG) GetMe(context.Context) (telegram.Me, error) {
 	return telegram.Me{Username: "voicetextbot"}, nil
 }
 func (f *fakeTG) SetMyCommandsForScope(_ context.Context, commands []telegram.BotCommand, scope *telegram.BotCommandScope) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if scope != nil && scope.Type == "all_group_chats" {
 		f.groupCommands = append([]telegram.BotCommand{}, commands...)
 	}
 	return nil
 }
 func (f *fakeTG) SendMessage(_ context.Context, _ int64, text string, markup *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "sendMessage")
 	f.sent = append(f.sent, text)
 	f.markups = append(f.markups, markup)
 	return telegram.Message{}, nil
 }
 func (f *fakeTG) SendEphemeralMessage(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "sendEphemeral")
 	f.ephemeral = append(f.ephemeral, text)
 	return telegram.Message{MessageID: 501, EphemeralMessageID: 501}, nil
 }
 func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+	f.mu.Lock()
+	hook := f.onRich
 	f.calls = append(f.calls, "sendRich")
 	if f.richErr != nil {
 		err := f.richErr
 		f.richErr = nil
+		f.mu.Unlock()
 		return telegram.Message{}, err
 	}
 	f.sent = append(f.sent, text)
 	f.richChats = append(f.richChats, chatID)
-	return telegram.Message{MessageID: int64(len(f.sent))}, nil
+	id := int64(len(f.sent))
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return telegram.Message{MessageID: id}, nil
+}
+
+// transcriptParts is what the user actually received, in order. A direct chat
+// now shows "Transcribing…" first and the result replaces it, so part one
+// arrives as an edit and any further parts as new messages.
+func (f *fakeTG) transcriptParts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := append([]string{}, f.richEdits...)
+	for _, text := range f.sent {
+		if text == transcript.WorkingText("en") || text == transcript.WorkingText("ru") {
+			continue
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
+func (f *fakeTG) EditMessageRichHTML(_ context.Context, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "editRich")
+	f.richEdits = append(f.richEdits, text)
+	return nil
 }
 func (f *fakeTG) EditEphemeralRichHTML(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editEphemeralRich")
 	f.ephemeralRich = append(f.ephemeralRich, text)
 	return nil
 }
 func (f *fakeTG) EditEphemeralMessageText(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editEphemeral")
 	f.ephemeralEdits = append(f.ephemeralEdits, text)
 	return nil
 }
 func (f *fakeTG) EditMessageText(_ context.Context, _, _ int64, text string, markup *telegram.InlineKeyboardMarkup) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editMessage")
 	f.edits = append(f.edits, text)
 	f.markups = append(f.markups, markup)
 	return nil
 }
 func (f *fakeTG) DeleteMessage(_ context.Context, chatID, messageID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "deleteMessage")
 	f.deleted = append(f.deleted, itoa64(chatID)+":"+itoa64(messageID))
 	return nil
 }
 func (f *fakeTG) DeleteEphemeralMessage(_ context.Context, chatID, _ int64, messageID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "deleteEphemeral")
 	f.deleted = append(f.deleted, itoa64(chatID)+":"+itoa64(messageID))
 	return nil
 }
 func (f *fakeTG) AnswerCallbackQuery(_ context.Context, _, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, "answerCallback")
 	f.answered = append(f.answered, text)
 	return nil
 }
-func (f *fakeTG) SendChatAction(context.Context, int64, int, string) error { return nil }
+func (f *fakeTG) SendChatAction(context.Context, int64, int, string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.chatActions++
+	return nil
+}
 func (f *fakeTG) GetFile(context.Context, string) (telegram.File, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.gotFile++
 	return telegram.File{FilePath: "voice/x.ogg"}, nil
 }
 func (f *fakeTG) DownloadFile(context.Context, string, int64) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.downloaded++
 	return []byte("AUDIO"), nil
 }
 
 type countingSTT struct {
+	mu             sync.Mutex
 	calls          int
 	res            deepgram.Result
 	err            error
@@ -229,12 +319,17 @@ type countingSTT struct {
 }
 
 func (c *countingSTT) Transcribe(_ context.Context, _ []byte, _ string, opts deepgram.Options) (deepgram.Result, error) {
+	c.mu.Lock()
 	c.calls++
 	c.opts = opts
 	if c.tg != nil {
+		c.tg.mu.Lock()
 		c.sawPlaceholder = len(c.tg.ephemeral) > 0
+		c.tg.mu.Unlock()
 	}
-	return c.res, c.err
+	res, err := c.res, c.err
+	c.mu.Unlock()
+	return res, err
 }
 
 func logger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -274,8 +369,13 @@ func TestHandleCacheHitDoesNotCallListen(t *testing.T) {
 	if tg.downloaded != 0 || tg.gotFile != 0 {
 		t.Fatal("should not download on cache hit")
 	}
-	if len(tg.sent) != 1 || !contains(tg.sent[0], "cached hello") {
-		t.Fatalf("sent = %v", tg.sent)
+	got := tg.transcriptParts()
+	if len(got) != 1 || !contains(got[0], "cached hello") {
+		t.Fatalf("delivered = %v", got)
+	}
+	// A cache hit is instant, so it must not flash a placeholder first.
+	if len(tg.sent) != 1 {
+		t.Fatalf("a cache hit must not open a placeholder: %v", tg.sent)
 	}
 	if st.successes != 1 {
 		t.Fatalf("successes = %d", st.successes)
@@ -745,8 +845,9 @@ func TestLongTranscriptUsesOneRichMessageWithinLimit(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.sent) != 1 || !contains(tg.sent[0], "word word word") {
-		t.Fatalf("rich messages = %d", len(tg.sent))
+	got := tg.transcriptParts()
+	if len(got) != 1 || !contains(got[0], "word word word") {
+		t.Fatalf("delivered = %d parts", len(got))
 	}
 }
 
@@ -802,10 +903,11 @@ func TestOverRichLimitSplitsIntoRichMessages(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.sent) < 2 {
-		t.Fatalf("over-limit transcript must be split, rich messages=%d", len(tg.sent))
+	got := tg.transcriptParts()
+	if len(got) < 2 {
+		t.Fatalf("over-limit transcript must be split, parts=%d", len(got))
 	}
-	for i, part := range tg.sent {
+	for i, part := range got {
 		if len([]rune(part)) > transcript.MaxRichCharacters {
 			t.Fatalf("part %d has %d characters", i, len([]rune(part)))
 		}
@@ -838,8 +940,8 @@ func TestSendRetriesAfterChatMigration(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.sent) != 1 || !contains(tg.sent[0], "migrated text") {
-		t.Fatalf("sent = %v", tg.sent)
+	if got := tg.transcriptParts(); len(got) != 1 || !contains(got[0], "migrated text") {
+		t.Fatalf("delivered = %v", got)
 	}
 	if len(tg.richChats) != 1 || tg.richChats[0] != -1001 {
 		t.Fatalf("resend must target the migrated chat, got %v", tg.richChats)

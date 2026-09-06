@@ -28,6 +28,11 @@ characters, so longer text is split at a paragraph or word boundary into
 independently valid, numbered rich messages. No transcript is sent as a
 document.
 
+In a direct chat Voicy answers a cache miss with a "Transcribing…" message
+that replies to the voice, keeps a typing indicator alive while it works, and
+then edits that same message into the transcript. A cache hit skips the
+placeholder entirely. Longer transcripts continue from the edited message.
+
 For `/vp`, Voicy immediately creates an ephemeral placeholder, sent with the
 Bot API 10.3 `ephemeral_message_parameters` object. Telegram accepts a new
 ephemeral message only within 15 seconds of the command that triggered it, and

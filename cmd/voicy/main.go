@@ -54,8 +54,11 @@ func run(log *slog.Logger) error {
 
 	tg := telegram.NewClient(cfg.TelegramBotToken)
 	stt := deepgram.New(cfg.DeepgramAPIKey)
+	store.SetStatsTimezone(cfg.StatsTimezone)
 	b := bot.New(store, tg, stt, log)
 	b.SetMediaLimits(cfg.MaxMediaBytes, cfg.MaxMediaDuration)
+	b.SetWorkers(cfg.MaxConcurrentJobs)
+	b.SetStatsTTL(cfg.StatsCacheTTL)
 
 	started := time.Now()
 	mux := http.NewServeMux()
@@ -79,7 +82,7 @@ func run(log *slog.Logger) error {
 		}
 	}()
 	go func() {
-		log.Info("telegram polling starting")
+		log.Info("telegram polling starting", "workers", cfg.MaxConcurrentJobs)
 		if err := b.Run(ctx); err != nil {
 			errCh <- err
 		}

@@ -64,3 +64,35 @@ func TestJobStaleAfterDefaultsAndValidates(t *testing.T) {
 		t.Fatal("a non-positive JOB_STALE_AFTER must be rejected")
 	}
 }
+
+func TestConcurrencyAndStatsDefaults(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "t")
+	t.Setenv("DEEPGRAM_API_KEY", "k")
+	t.Setenv("DATABASE_URL", "postgres://localhost/voicy")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxConcurrentJobs != 4 {
+		t.Fatalf("MaxConcurrentJobs = %d", cfg.MaxConcurrentJobs)
+	}
+	if cfg.StatsTimezone != "Europe/Kyiv" || cfg.StatsCacheTTL != 5*time.Minute {
+		t.Fatalf("stats defaults = %q / %s", cfg.StatsTimezone, cfg.StatsCacheTTL)
+	}
+
+	for _, tc := range []struct{ key, value string }{
+		{"MAX_CONCURRENT_JOBS", "0"},
+		{"MAX_CONCURRENT_JOBS", "200"},
+		{"MAX_CONCURRENT_JOBS", "many"},
+		{"STATS_TIMEZONE", "Europe/Kyiv; DROP TABLE jobs"},
+		{"STATS_CACHE_TTL", "0s"},
+	} {
+		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
+			t.Setenv(tc.key, tc.value)
+			if _, err := Load(); err == nil {
+				t.Fatalf("%s=%q must be rejected", tc.key, tc.value)
+			}
+		})
+	}
+}
