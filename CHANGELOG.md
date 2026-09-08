@@ -8,6 +8,11 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-beta.2 - 2026-09-08
+
+Voicy's Telegram client is no longer its own, and it will not start against a
+server that cannot serve it.
+
 ### Changed
 
 - Telegram now goes through `github.com/FreshLabDev/tg`, the client shared by
@@ -45,11 +50,20 @@ GitHub Releases.
 
 ### Operations
 
-- The WS04 stack mounts `<bot api data>/<token>` and runs as uid 101, the user
-  the Bot API server writes as. The mount uses Compose's long volume syntax:
-  the path contains the token, the token contains a colon, and `source:target`
-  splits on colons. Files are removed after transcription, which a
-  local server never does on its own.
+- The WS04 stack mounts the bot's own media directory on the Bot API server
+  and runs as uid 101, the user that server writes as. `BOT_API_HOST_DIR` and
+  `BOT_API_FILES_DIR` name that directory on the host and in the container.
+  Files are removed after transcription, which a local server never does on
+  its own.
+- The mount needs Compose's long volume syntax *with* a `bind` option. Both
+  paths contain the bot token, a token contains a colon, and Compose flattens
+  an option-less long mount back into `source:target:rw`, which the daemon
+  then splits in the wrong places.
+- Production runs against `telegram-bot-api-next`, the FreshLab-built Bot API
+  10.3 server, while the older shared server keeps the bots that have not
+  moved. Moving a bot between servers is: stop it, `logOut` on the server it
+  leaves, then start it on the new one. A running bot re-registers itself
+  within a second, so the stop is not optional.
 
 ## v0.0.1-beta.1 - 2026-09-06
 
