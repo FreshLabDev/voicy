@@ -68,11 +68,11 @@ type Telegram interface {
 	SetMyCommandsForScope(context.Context, []tg.BotCommand, *tg.BotCommandScope) error
 	SendMessage(context.Context, int64, string, *tg.InlineKeyboardMarkup) (tg.Message, error)
 	SendEphemeralMessage(context.Context, int64, int64, int64, string, *tg.InlineKeyboardMarkup) (tg.Message, error)
-	SendRichHTML(context.Context, int64, int64, int, string, *tg.InlineKeyboardMarkup) (tg.Message, error)
+	SendRichHTML(context.Context, int64, int64, int, string, *tg.InlineKeyboardMarkup, ...tg.RichOption) (tg.Message, error)
 	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *tg.InlineKeyboardMarkup) error
-	EditEphemeralRichHTML(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, body string, markup *tg.InlineKeyboardMarkup) error
+	EditEphemeralRichHTML(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, body string, markup *tg.InlineKeyboardMarkup, opts ...tg.RichOption) error
 	EditMessageText(context.Context, int64, int64, string, *tg.InlineKeyboardMarkup) error
-	EditMessageRichHTML(ctx context.Context, chatID, messageID int64, body string, markup *tg.InlineKeyboardMarkup) error
+	EditMessageRichHTML(ctx context.Context, chatID, messageID int64, body string, markup *tg.InlineKeyboardMarkup, opts ...tg.RichOption) error
 	DeleteMessage(context.Context, int64, int64) error
 	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error
 	AnswerCallbackQuery(context.Context, string, string) error
