@@ -149,7 +149,7 @@ getFile -> bounded download
 |:--|:--:|:--|:--|
 | `TELEGRAM_BOT_TOKEN` | yes | — | Bot token from BotFather |
 | `TELEGRAM_API_BASE` | no | `https://api.telegram.org` | Bot API server; a self-hosted one lifts the 20 MB media ceiling |
-| `BOT_API_FILES_DIR` | with a self-hosted server | — | That server's data directory as Voicy sees it. It runs with `--local`, so it hands over files by absolute path and serves none over HTTP; mount only `<dir>/<token>` |
+| `BOT_API_FILES_DIR` | with a self-hosted server | — | That server's media directory as Voicy sees it (its `--files-dir`, or its `--dir` on a server without one). It runs with `--local`, so it hands over files by absolute path and serves none over HTTP; mount only `<dir>/<token>`, and create that directory owned by uid 101 first |
 | `TELEGRAM_READY_WAIT` | no | `30s` | How long startup waits for a self-hosted server that is still booting |
 | `DEEPGRAM_API_KEY` | yes | — | Deepgram project API key |
 | `DATABASE_URL` | yes | — | PostgreSQL URL for `voicy_core`; the service enforces `search_path=voicy` |

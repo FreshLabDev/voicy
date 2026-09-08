@@ -14,7 +14,9 @@ services:
       MIGRATIONS_DIR: /app/migrations
       HTTP_ADDR: :8080
       AUTO_MIGRATE: "true"
-      BOT_API_FILES_DIR: /var/lib/telegram-bot-api
+      # Where this bot sees the Bot API server's media. On a server started
+      # with --files-dir (Bot API 10.3+) that is not the working directory.
+      BOT_API_FILES_DIR: ${BOT_API_FILES_DIR:-/var/lib/telegram-bot-api}
     # The shared Bot API server runs with --local, which means it answers
     # getFile with an absolute path on its own disk and serves nothing over
     # HTTP: its /file/bot<token>/... route returns 404 by design. So the
@@ -25,8 +27,11 @@ services:
     # short form splits on colons.
     volumes:
       - type: bind
-        source: ${BOT_API_HOST_DIR:-/opt/stacks/telegram-bot-api/data}/${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set for the Bot API files mount}
-        target: /var/lib/telegram-bot-api/${TELEGRAM_BOT_TOKEN}
+        # The directory must already exist and be owned by uid 101, the user
+        # the Bot API server writes as. Docker would otherwise create it as
+        # root, and then neither the server nor this bot could write in it.
+        source: ${BOT_API_HOST_DIR:?BOT_API_HOST_DIR must point at the Bot API server media directory on the host}/${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set for the Bot API files mount}
+        target: ${BOT_API_FILES_DIR:-/var/lib/telegram-bot-api}/${TELEGRAM_BOT_TOKEN}
     # The Bot API server writes as uid 101 with mode 0750. Voicy has to read
     # those files and delete them afterwards, because a local server never
     # reclaims what it produced.

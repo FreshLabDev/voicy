@@ -93,4 +93,5 @@ jobs:
           # value to interpolate.
           VOICY_IMAGE=ghcr.io/freshlabdev/voicy:test \
             TELEGRAM_BOT_TOKEN=000:ci-validation-only \
+            BOT_API_HOST_DIR=/opt/stacks/telegram-bot-api/files \
             docker compose -f deploy/ws04/compose.yaml config >/dev/null
