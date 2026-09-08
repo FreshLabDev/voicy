@@ -8,6 +8,8 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-beta.4 - 2026-09-08
+
 ### Fixed
 
 - `voicy_telegram_errors_total` no longer counts the startup capability probe.
