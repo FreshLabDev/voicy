@@ -8,6 +8,11 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-beta.3 - 2026-09-08
+
+Everything a review of the shared Telegram client turned up, including two
+ways the bot token could have escaped.
+
 ### Security
 
 - Through `tg` v0.0.1-alpha.6: the bot token can no longer reach a log line
