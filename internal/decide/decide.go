@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/media"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 type Kind string
@@ -52,8 +52,8 @@ type Action struct {
 	ChatID             int64
 	ThreadID           int
 	UserID             int64
-	User               telegram.User
-	Chat               telegram.Chat
+	User               tg.User
+	Chat               tg.Chat
 	LanguageCode       string
 	Arg                string
 	ReplyToID          int64
@@ -66,7 +66,7 @@ type Action struct {
 	MessageID          int64
 }
 
-func Decide(upd telegram.Update, selfUsername string) Action {
+func Decide(upd tg.Update, selfUsername string) Action {
 	// my_chat_member is requested in allowed_updates so the shared core learns
 	// where Voicy lives. It never produces a message: groups stay quiet.
 	if upd.MyChatMember != nil {
@@ -185,7 +185,7 @@ func Decide(upd telegram.Update, selfUsername string) Action {
 		}
 	}
 
-	if attachment, ok := msg.Media(); ok {
+	if attachment, ok := media.Of(msg); ok {
 		if !private {
 			return withKind(base, Ignore)
 		}
@@ -224,8 +224,8 @@ func validToken(token string) bool {
 
 // transcribeCommand handles an explicit /v or /vp. Unlike a bare attachment it
 // accepts every kind, because the user asked for this one by name.
-func transcribeCommand(base Action, msg *telegram.Message, private bool, vis Visibility) Action {
-	attachment, ok := msg.ReplyToMessage.Media()
+func transcribeCommand(base Action, msg *tg.Message, private bool, vis Visibility) Action {
+	attachment, ok := media.Of(msg.ReplyToMessage)
 	if !ok {
 		if private {
 			return withKind(base, Nudge)
@@ -248,7 +248,7 @@ func transcribeCommand(base Action, msg *telegram.Message, private bool, vis Vis
 	return act
 }
 
-func mediaOf(ref telegram.MediaRef, isVideo bool) *Media {
+func mediaOf(ref media.Ref, isVideo bool) *Media {
 	return &Media{
 		FileID:       ref.FileID,
 		FileUniqueID: ref.FileUniqueID,

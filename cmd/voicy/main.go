@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/bot"
 	"github.com/FreshLabDev/voicy/internal/config"
 	"github.com/FreshLabDev/voicy/internal/db"
@@ -18,7 +19,6 @@ import (
 	"github.com/FreshLabDev/voicy/internal/health"
 	"github.com/FreshLabDev/voicy/internal/media"
 	"github.com/FreshLabDev/voicy/internal/metrics"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 var (
@@ -54,16 +54,45 @@ func run(log *slog.Logger) error {
 		}
 	}
 
-	tg := telegram.NewClient(cfg.TelegramBotToken)
-	tg.SetAPIBase(cfg.TelegramAPIBase)
-	if cfg.TelegramAPIBase != config.DefaultTelegramAPIBase {
-		// A local server lifts the cloud API's 20 MB getFile ceiling and returns
-		// files by absolute path on a shared volume.
+	client := tg.New(cfg.TelegramBotToken,
+		tg.WithAPIBase(cfg.TelegramAPIBase),
+		// my_chat_member is what tells shared Core where Voicy lives; Telegram
+		// leaves it out of the default set, so it has to be asked for.
+		tg.WithAllowedUpdates("message", "callback_query", "my_chat_member"),
+		tg.WithLocalFiles(cfg.BotAPIFilesDir),
+		tg.WithLogger(log),
+		tg.WithObserver(func(e tg.Event) {
+			switch {
+			case e.Err == nil:
+			case e.Status == http.StatusTooManyRequests:
+				metrics.TelegramLimited.Inc(e.Method)
+			default:
+				metrics.TelegramErrors.Inc(e.Method)
+			}
+		}),
+	)
+	selfHosted := cfg.TelegramAPIBase != config.DefaultTelegramAPIBase
+	if selfHosted {
+		// A local server lifts the cloud API's 20 MB getFile ceiling and hands
+		// over files by absolute path on its own disk.
 		log.Info("using a self-hosted bot api server", "base", cfg.TelegramAPIBase)
 	}
+	// Voicy without rich messages is a bot that receives a voice message and
+	// answers nothing: every transcript, placeholder and ephemeral reply goes
+	// through them. A server that lacks them is a startup failure, not a
+	// surprise on the first circle.
+	me, err := client.Preflight(ctx, tg.Needs{
+		Methods: []string{"sendRichMessage", "editEphemeralMessageText"},
+		Files:   selfHosted,
+		Wait:    cfg.TelegramReadyWait,
+	})
+	if err != nil {
+		return err
+	}
+	log.Info("telegram preflight passed", "username", me.Username, "bot_api", tg.BotAPI)
 	stt := deepgram.New(cfg.DeepgramAPIKey)
 	store.SetStatsTimezone(cfg.StatsTimezone)
-	b := bot.New(store, tg, stt, log)
+	b := bot.New(store, client, stt, log)
 	b.SetMediaLimits(cfg.MaxMediaBytes, cfg.MaxMediaDuration)
 	b.SetWorkers(cfg.MaxConcurrentJobs)
 	b.SetStatsTTL(cfg.StatsCacheTTL)

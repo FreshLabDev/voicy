@@ -88,4 +88,10 @@ jobs:
           cp .env.example .env
           docker compose config >/dev/null
           cp .env.example deploy/ws04/.env
-          VOICY_IMAGE=ghcr.io/freshlabdev/voicy:test docker compose -f deploy/ws04/compose.yaml config >/dev/null
+          # The production stack mounts this bot's own directory on the shared
+          # Bot API server, and that path is the token, so validation needs a
+          # value to interpolate.
+          VOICY_IMAGE=ghcr.io/freshlabdev/voicy:test \
+            TELEGRAM_BOT_TOKEN=000:ci-validation-only \
+            BOT_API_HOST_DIR=/opt/stacks/telegram-bot-api/files \
+            docker compose -f deploy/ws04/compose.yaml config >/dev/null

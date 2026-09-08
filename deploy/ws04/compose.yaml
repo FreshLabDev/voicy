@@ -14,12 +14,35 @@ services:
       MIGRATIONS_DIR: /app/migrations
       HTTP_ADDR: :8080
       AUTO_MIGRATE: "true"
+      # Where this bot sees the Bot API server's media. On a server started
+      # with --files-dir (Bot API 10.3+) that is not the working directory.
+      BOT_API_FILES_DIR: ${BOT_API_FILES_DIR:-/var/lib/telegram-bot-api}
+    # The shared Bot API server runs with --local, which means it answers
+    # getFile with an absolute path on its own disk and serves nothing over
+    # HTTP: its /file/bot<token>/... route returns 404 by design. So the
+    # directory has to be mounted — but only this bot's own subdirectory. The
+    # parent holds one subdirectory per bot, each named after that bot's full
+    # token, and mounting it would hand Voicy every other bot's credentials.
+    # Long syntax, not "source:target": a bot token contains a colon and both
+    # paths contain the token, so the short form splits in the wrong places.
+    # The bind option is not decoration either -- without one, Compose flattens
+    # long syntax back into a "source:target:rw" string and the daemon's parser
+    # fails the same way ("invalid volume specification: too many colons").
+    volumes:
+      - type: bind
+        # The directory must already exist and be owned by uid 101, the user
+        # the Bot API server writes as. Docker would otherwise create it as
+        # root, and then neither the server nor this bot could write in it.
+        source: ${BOT_API_HOST_DIR:?BOT_API_HOST_DIR must point at the Bot API server media directory on the host}/${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set for the Bot API files mount}
+        target: ${BOT_API_FILES_DIR:-/var/lib/telegram-bot-api}/${TELEGRAM_BOT_TOKEN}
+        bind:
+          propagation: rprivate
+    # The Bot API server writes as uid 101 with mode 0750. Voicy has to read
+    # those files and delete them afterwards, because a local server never
+    # reclaims what it produced.
+    user: "101:101"
     # telegram_bot_api_net reaches the shared self-hosted Bot API server, the
-    # same one vido uses. Its data directory is deliberately NOT mounted: it
-    # holds one subdirectory per bot named after that bot's token, so mounting
-    # it would hand Voicy every other bot's credentials. Files are fetched from
-    # the server over this network instead, which still lifts the cloud API's
-    # 20 MB ceiling.
+    # same one vido uses.
     networks: [core_net, telegram_bot_api_net]
     logging:
       driver: json-file

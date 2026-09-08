@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 // blockingSTT parks every call until release is closed, and reports how many
@@ -47,7 +47,7 @@ func (s *blockingSTT) Transcribe(ctx context.Context, _ string, _ string, _ deep
 	return deepgram.Result{Text: "done"}, nil
 }
 
-func voiceUpdate(t *testing.T, updateID, userID int64, fileID string) telegram.Update {
+func voiceUpdate(t *testing.T, updateID, userID int64, fileID string) tg.Update {
 	t.Helper()
 	raw := `{
 	  "update_id": ` + strconv.FormatInt(updateID, 10) + `,
@@ -58,7 +58,7 @@ func voiceUpdate(t *testing.T, updateID, userID int64, fileID string) telegram.U
 	    "voice": {"file_id": "` + fileID + `", "file_unique_id": "u` + fileID + `", "duration": 3}
 	  }
 	}`
-	var upd telegram.Update
+	var upd tg.Update
 	if err := json.Unmarshal([]byte(raw), &upd); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestBatchRunsDifferentUsersConcurrently(t *testing.T) {
 	b := New(&fakeStore{}, &fakeTG{}, stt, logger())
 	b.SetWorkers(3)
 
-	updates := []telegram.Update{
+	updates := []tg.Update{
 		voiceUpdate(t, 1, 11, "A"),
 		voiceUpdate(t, 2, 22, "B"),
 		voiceUpdate(t, 3, 33, "C"),
@@ -107,11 +107,11 @@ func TestBatchRunsDifferentUsersConcurrently(t *testing.T) {
 func TestBatchSerializesOneUser(t *testing.T) {
 	stt := newBlockingSTT()
 	close(stt.release) // never block, just record ordering
-	tg := &fakeTG{}
-	b := New(&fakeStore{}, tg, stt, logger())
+	api := &fakeTG{}
+	b := New(&fakeStore{}, api, stt, logger())
 	b.SetWorkers(4)
 
-	updates := []telegram.Update{
+	updates := []tg.Update{
 		voiceUpdate(t, 1, 77, "FIRST"),
 		voiceUpdate(t, 2, 77, "SECOND"),
 		voiceUpdate(t, 3, 77, "THIRD"),
@@ -121,13 +121,13 @@ func TestBatchSerializesOneUser(t *testing.T) {
 	if stt.peak > 1 {
 		t.Fatalf("one user ran %d transcriptions at once", stt.peak)
 	}
-	if got := len(tg.transcriptParts()); got != 3 {
+	if got := len(api.transcriptParts()); got != 3 {
 		t.Fatalf("delivered %d transcripts, want 3", got)
 	}
 }
 
 func TestGroupByUserKeepsOrder(t *testing.T) {
-	updates := []telegram.Update{
+	updates := []tg.Update{
 		voiceUpdate(t, 1, 11, "A"),
 		voiceUpdate(t, 2, 22, "B"),
 		voiceUpdate(t, 3, 11, "C"),
@@ -155,7 +155,7 @@ func TestBatchStopsOnContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		b.processBatch(ctx, []telegram.Update{
+		b.processBatch(ctx, []tg.Update{
 			voiceUpdate(t, 1, 11, "A"),
 			voiceUpdate(t, 2, 22, "B"),
 		})

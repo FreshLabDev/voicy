@@ -18,9 +18,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
 	"github.com/FreshLabDev/voicy/internal/settings"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 func testStore(t *testing.T) *Store {
@@ -84,7 +84,7 @@ func truncate(t *testing.T, s *Store) {
 
 func person(t *testing.T, s *Store, id int64) {
 	t.Helper()
-	if err := s.Touch(context.Background(), telegram.User{ID: id, FirstName: "T"}, nil); err != nil {
+	if err := s.Touch(context.Background(), tg.User{ID: id, FirstName: "T"}, nil); err != nil {
 		t.Fatalf("touch: %v", err)
 	}
 }

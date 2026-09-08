@@ -11,10 +11,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 )
 
 type Store struct {
@@ -64,7 +64,7 @@ func (s *Store) Close() {
 	}
 }
 
-func (s *Store) Touch(ctx context.Context, user telegram.User, chat *telegram.Chat) error {
+func (s *Store) Touch(ctx context.Context, user tg.User, chat *tg.Chat) error {
 	var chatID any
 	var chatType, chatTitle, chatUname any
 	if chat != nil && chat.Type != "private" && chat.ID != 0 {

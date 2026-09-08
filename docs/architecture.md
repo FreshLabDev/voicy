@@ -14,8 +14,8 @@ surface. PostgreSQL is its only durable store.
   deleted when the job ends. It is never logged or stored in PostgreSQL.
 - ffmpeg reduces video and oversized media to a mono Opus track before the
   Deepgram request. Without ffmpeg the original is sent instead.
-- Telegram is accessed through the first-party HTTP client in
-  `internal/telegram`. There is no SDK and no webhook mode.
+- Telegram is accessed through `github.com/FreshLabDev/tg`, the client shared
+  by the bot family. There is no SDK and no webhook mode.
 - `TELEGRAM_API_BASE` selects the Bot API server. The shared self-hosted one on
   `telegram_bot_api_net` runs with `TELEGRAM_LOCAL`, so `getFile` answers with an
   absolute path in its data directory. That directory is not mounted into Voicy:
@@ -100,5 +100,4 @@ Markdown when possible, then DM, then an owner-bound deep link as recovery.
 - `internal/deepgram`: prerecorded Listen client and response extraction.
 - `internal/health`: readiness and liveness contract.
 - `internal/settings`: settings registry and cache variants.
-- `internal/telegram`: Bot API HTTP transport.
 - `internal/transcript`: localized panels, rich HTML, splitting, stats.

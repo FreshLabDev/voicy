@@ -3,6 +3,8 @@
 Voicy is a minimal private-by-default Telegram voice-to-text bot.
 
 - One Go service, long polling only.
+- Telegram runs on the shared `github.com/FreshLabDev/tg` client, and the bot
+  refuses to start against a server that lacks the methods it needs.
 - Deepgram prerecorded Listen only, no streaming.
 - DM voice, circles and audio files transcribe automatically; video and
   documents need an explicit `/v`.

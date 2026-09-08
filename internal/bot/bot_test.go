@@ -12,12 +12,12 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/db"
 	"github.com/FreshLabDev/voicy/internal/decide"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 	"github.com/FreshLabDev/voicy/internal/transcript"
 )
 
@@ -43,7 +43,7 @@ func (f *fakeStore) cfg(userID int64) settings.Settings {
 	return settings.Default()
 }
 
-func (f *fakeStore) Touch(context.Context, telegram.User, *telegram.Chat) error {
+func (f *fakeStore) Touch(context.Context, tg.User, *tg.Chat) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.touched++
@@ -176,8 +176,8 @@ type fakeTG struct {
 	deleted        []string
 	answered       []string
 	richChats      []int64
-	markups        []*telegram.InlineKeyboardMarkup
-	groupCommands  []telegram.BotCommand
+	markups        []*tg.InlineKeyboardMarkup
+	groupCommands  []tg.BotCommand
 	downloaded     int
 	gotFile        int
 	calls          []string
@@ -187,35 +187,35 @@ type fakeTG struct {
 	onRich         func()
 }
 
-func (f *fakeTG) DeleteWebhook(context.Context) error                               { return nil }
-func (f *fakeTG) GetUpdates(context.Context, int64, int) ([]telegram.Update, error) { return nil, nil }
-func (f *fakeTG) GetMe(context.Context) (telegram.Me, error) {
-	return telegram.Me{Username: "voicetextbot"}, nil
+func (f *fakeTG) DeleteWebhook(context.Context) error                         { return nil }
+func (f *fakeTG) GetUpdates(context.Context, int64, int) ([]tg.Update, error) { return nil, nil }
+func (f *fakeTG) GetMe(context.Context) (tg.Me, error) {
+	return tg.Me{Username: "voicetextbot"}, nil
 }
-func (f *fakeTG) SetMyCommandsForScope(_ context.Context, commands []telegram.BotCommand, scope *telegram.BotCommandScope) error {
+func (f *fakeTG) SetMyCommandsForScope(_ context.Context, commands []tg.BotCommand, scope *tg.BotCommandScope) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if scope != nil && scope.Type == "all_group_chats" {
-		f.groupCommands = append([]telegram.BotCommand{}, commands...)
+		f.groupCommands = append([]tg.BotCommand{}, commands...)
 	}
 	return nil
 }
-func (f *fakeTG) SendMessage(_ context.Context, _ int64, text string, markup *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+func (f *fakeTG) SendMessage(_ context.Context, _ int64, text string, markup *tg.InlineKeyboardMarkup) (tg.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "sendMessage")
 	f.sent = append(f.sent, text)
 	f.markups = append(f.markups, markup)
-	return telegram.Message{}, nil
+	return tg.Message{}, nil
 }
-func (f *fakeTG) SendEphemeralMessage(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+func (f *fakeTG) SendEphemeralMessage(_ context.Context, _, _, _ int64, text string, _ *tg.InlineKeyboardMarkup) (tg.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "sendEphemeral")
 	f.ephemeral = append(f.ephemeral, text)
-	return telegram.Message{MessageID: 501, EphemeralMessageID: 501}, nil
+	return tg.Message{MessageID: 501, EphemeralMessageID: 501}, nil
 }
-func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text string, _ *telegram.InlineKeyboardMarkup) (telegram.Message, error) {
+func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text string, _ *tg.InlineKeyboardMarkup) (tg.Message, error) {
 	f.mu.Lock()
 	hook := f.onRich
 	f.calls = append(f.calls, "sendRich")
@@ -223,7 +223,7 @@ func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text st
 		err := f.richErr
 		f.richErr = nil
 		f.mu.Unlock()
-		return telegram.Message{}, err
+		return tg.Message{}, err
 	}
 	f.sent = append(f.sent, text)
 	f.richChats = append(f.richChats, chatID)
@@ -232,7 +232,7 @@ func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text st
 	if hook != nil {
 		hook()
 	}
-	return telegram.Message{MessageID: id}, nil
+	return tg.Message{MessageID: id}, nil
 }
 
 // transcriptParts is what the user actually received, in order. A direct chat
@@ -251,28 +251,28 @@ func (f *fakeTG) transcriptParts() []string {
 	return out
 }
 
-func (f *fakeTG) EditMessageRichHTML(_ context.Context, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
+func (f *fakeTG) EditMessageRichHTML(_ context.Context, _, _ int64, text string, _ *tg.InlineKeyboardMarkup) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editRich")
 	f.richEdits = append(f.richEdits, text)
 	return nil
 }
-func (f *fakeTG) EditEphemeralRichHTML(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
+func (f *fakeTG) EditEphemeralRichHTML(_ context.Context, _, _, _ int64, text string, _ *tg.InlineKeyboardMarkup) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editEphemeralRich")
 	f.ephemeralRich = append(f.ephemeralRich, text)
 	return nil
 }
-func (f *fakeTG) EditEphemeralMessageText(_ context.Context, _, _, _ int64, text string, _ *telegram.InlineKeyboardMarkup) error {
+func (f *fakeTG) EditEphemeralMessageText(_ context.Context, _, _, _ int64, text string, _ *tg.InlineKeyboardMarkup) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editEphemeral")
 	f.ephemeralEdits = append(f.ephemeralEdits, text)
 	return nil
 }
-func (f *fakeTG) EditMessageText(_ context.Context, _, _ int64, text string, markup *telegram.InlineKeyboardMarkup) error {
+func (f *fakeTG) EditMessageText(_ context.Context, _, _ int64, text string, markup *tg.InlineKeyboardMarkup) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editMessage")
@@ -307,11 +307,11 @@ func (f *fakeTG) SendChatAction(context.Context, int64, int, string) error {
 	f.chatActions++
 	return nil
 }
-func (f *fakeTG) GetFile(context.Context, string) (telegram.File, error) {
+func (f *fakeTG) GetFile(context.Context, string) (tg.File, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gotFile++
-	return telegram.File{FilePath: "voice/x.ogg"}, nil
+	return tg.File{FilePath: "voice/x.ogg"}, nil
 }
 func (f *fakeTG) DownloadToFile(_ context.Context, _, dst string, _ int64) error {
 	f.mu.Lock()
@@ -326,7 +326,7 @@ type countingSTT struct {
 	res            deepgram.Result
 	err            error
 	opts           deepgram.Options
-	tg             *fakeTG
+	api            *fakeTG
 	sawPlaceholder bool
 }
 
@@ -334,10 +334,10 @@ func (c *countingSTT) Transcribe(_ context.Context, _ string, _ string, opts dee
 	c.mu.Lock()
 	c.calls++
 	c.opts = opts
-	if c.tg != nil {
-		c.tg.mu.Lock()
-		c.sawPlaceholder = len(c.tg.ephemeral) > 0
-		c.tg.mu.Unlock()
+	if c.api != nil {
+		c.api.mu.Lock()
+		c.sawPlaceholder = len(c.api.ephemeral) > 0
+		c.api.mu.Unlock()
 	}
 	res, err := c.res, c.err
 	c.mu.Unlock()
@@ -346,9 +346,9 @@ func (c *countingSTT) Transcribe(_ context.Context, _ string, _ string, opts dee
 
 func logger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-func parseUpd(t *testing.T, raw string) telegram.Update {
+func parseUpd(t *testing.T, raw string) tg.Update {
 	t.Helper()
-	var u telegram.Update
+	var u tg.Update
 	if err := json.Unmarshal([]byte(raw), &u); err != nil {
 		t.Fatal(err)
 	}
@@ -359,9 +359,9 @@ func TestHandleCacheHitDoesNotCallListen(t *testing.T) {
 	st := &fakeStore{cached: map[string]db.Cached{
 		"VOICE1\x00" + settings.DefaultVariant: {FileID: "VOICE1", Transcript: "cached hello", Language: "en", WordCount: 2},
 	}}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: "should-not-run"}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	b.self = "voicetextbot"
 	upd := parseUpd(t, `{
 	  "update_id": 10,
@@ -378,16 +378,16 @@ func TestHandleCacheHitDoesNotCallListen(t *testing.T) {
 	if stt.calls != 0 {
 		t.Fatalf("Listen called %d times on cache hit", stt.calls)
 	}
-	if tg.downloaded != 0 || tg.gotFile != 0 {
+	if api.downloaded != 0 || api.gotFile != 0 {
 		t.Fatal("should not download on cache hit")
 	}
-	got := tg.transcriptParts()
+	got := api.transcriptParts()
 	if len(got) != 1 || !contains(got[0], "cached hello") {
 		t.Fatalf("delivered = %v", got)
 	}
 	// A cache hit is instant, so it must not flash a placeholder first.
-	if len(tg.sent) != 1 {
-		t.Fatalf("a cache hit must not open a placeholder: %v", tg.sent)
+	if len(api.sent) != 1 {
+		t.Fatalf("a cache hit must not open a placeholder: %v", api.sent)
 	}
 	if st.successes != 1 {
 		t.Fatalf("successes = %d", st.successes)
@@ -396,9 +396,9 @@ func TestHandleCacheHitDoesNotCallListen(t *testing.T) {
 
 func TestHandleGroupVUsesPublicSend(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: "group text", Language: "ru"}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	b.self = "voicetextbot"
 	upd := parseUpd(t, `{
 	  "update_id": 11,
@@ -416,36 +416,36 @@ func TestHandleGroupVUsesPublicSend(t *testing.T) {
 	if stt.calls != 1 {
 		t.Fatalf("stt calls = %d", stt.calls)
 	}
-	if len(tg.sent) != 1 {
-		t.Fatalf("public=%v", tg.sent)
+	if len(api.sent) != 1 {
+		t.Fatalf("public=%v", api.sent)
 	}
-	if len(tg.richChats) != 1 || tg.richChats[0] != -100 {
-		t.Fatalf("rich chats = %v", tg.richChats)
+	if len(api.richChats) != 1 || api.richChats[0] != -100 {
+		t.Fatalf("rich chats = %v", api.richChats)
 	}
 }
 
 func TestRegisterGroupVPIsEphemeral(t *testing.T) {
-	tg := &fakeTG{}
-	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(&fakeStore{}, api, &countingSTT{}, logger())
 	if err := b.RegisterCommands(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	var vp *telegram.BotCommand
-	for i := range tg.groupCommands {
-		if tg.groupCommands[i].Command == "vp" {
-			vp = &tg.groupCommands[i]
+	var vp *tg.BotCommand
+	for i := range api.groupCommands {
+		if api.groupCommands[i].Command == "vp" {
+			vp = &api.groupCommands[i]
 		}
 	}
 	if vp == nil || !vp.IsEphemeral {
-		t.Fatalf("group /vp must be ephemeral, got %#v", tg.groupCommands)
+		t.Fatalf("group /vp must be ephemeral, got %#v", api.groupCommands)
 	}
 }
 
 func TestHandleGroupVPPlaceholderThenEdit(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
-	stt := &countingSTT{res: deepgram.Result{Text: "secret"}, tg: tg}
-	b := New(st, tg, stt, logger())
+	api := &fakeTG{}
+	stt := &countingSTT{res: deepgram.Result{Text: "secret"}, api: api}
+	b := New(st, api, stt, logger())
 	b.self = "voicetextbot"
 	upd := parseUpd(t, `{
 	  "update_id": 12,
@@ -467,34 +467,34 @@ func TestHandleGroupVPPlaceholderThenEdit(t *testing.T) {
 	if !stt.sawPlaceholder {
 		t.Fatal("ephemeral placeholder must be sent before STT")
 	}
-	if len(tg.ephemeral) != 1 || tg.ephemeral[0] != transcript.WorkingText("en") {
-		t.Fatalf("placeholder = %v", tg.ephemeral)
+	if len(api.ephemeral) != 1 || api.ephemeral[0] != transcript.WorkingText("en") {
+		t.Fatalf("placeholder = %v", api.ephemeral)
 	}
-	if len(tg.ephemeralRich) != 1 || !contains(tg.ephemeralRich[0], "secret") {
-		t.Fatalf("rich edits = %v", tg.ephemeralRich)
+	if len(api.ephemeralRich) != 1 || !contains(api.ephemeralRich[0], "secret") {
+		t.Fatalf("rich edits = %v", api.ephemeralRich)
 	}
-	if len(tg.calls) < 1 || tg.calls[0] != "sendEphemeral" {
-		t.Fatalf("placeholder must be first telegram write, calls=%v", tg.calls)
+	if len(api.calls) < 1 || api.calls[0] != "sendEphemeral" {
+		t.Fatalf("placeholder must be first telegram write, calls=%v", api.calls)
 	}
 	var sawEdit bool
-	for _, c := range tg.calls {
+	for _, c := range api.calls {
 		if c == "editEphemeralRich" {
 			sawEdit = true
 		}
 	}
 	if !sawEdit {
-		t.Fatalf("missing editEphemeralRich in %v", tg.calls)
+		t.Fatalf("missing editEphemeralRich in %v", api.calls)
 	}
-	if len(tg.sent) != 0 {
-		t.Fatalf("a private transcript must never reach the group: %v", tg.sent)
+	if len(api.sent) != 0 {
+		t.Fatalf("a private transcript must never reach the group: %v", api.sent)
 	}
 }
 
 func TestHandleEmptyDoesNotSaveCache(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: "  "}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 13,
 	  "message": {
@@ -531,8 +531,8 @@ func TestDecideKindsMatchHandle(t *testing.T) {
 }
 
 func TestHandleStartUsesOwnerCallbacks(t *testing.T) {
-	tg := &fakeTG{}
-	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(&fakeStore{}, api, &countingSTT{}, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 20,
 	  "message": {
@@ -545,17 +545,17 @@ func TestHandleStartUsesOwnerCallbacks(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.sent) != 1 || !contains(tg.sent[0], "<b>Voicy</b>") || !contains(tg.sent[0], "<blockquote>") {
-		t.Fatalf("start panel = %v", tg.sent)
+	if len(api.sent) != 1 || !contains(api.sent[0], "<b>Voicy</b>") || !contains(api.sent[0], "<blockquote>") {
+		t.Fatalf("start panel = %v", api.sent)
 	}
-	if len(tg.markups) != 1 || !markupHas(tg.markups[0], "m:7:stats") || !markupHas(tg.markups[0], "m:7:close") {
-		t.Fatalf("markup = %#v", tg.markups)
+	if len(api.markups) != 1 || !markupHas(api.markups[0], "m:7:stats") || !markupHas(api.markups[0], "m:7:close") {
+		t.Fatalf("markup = %#v", api.markups)
 	}
 }
 
 func TestHandleCloseDeletes(t *testing.T) {
-	tg := &fakeTG{}
-	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(&fakeStore{}, api, &countingSTT{}, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 21,
 	  "callback_query": {
@@ -568,17 +568,17 @@ func TestHandleCloseDeletes(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.deleted) != 1 || tg.deleted[0] != "7:99" {
-		t.Fatalf("deleted = %v", tg.deleted)
+	if len(api.deleted) != 1 || api.deleted[0] != "7:99" {
+		t.Fatalf("deleted = %v", api.deleted)
 	}
-	if len(tg.edits) != 0 {
-		t.Fatalf("close must delete, not edit: %v", tg.edits)
+	if len(api.edits) != 0 {
+		t.Fatalf("close must delete, not edit: %v", api.edits)
 	}
 }
 
 func TestHandleForeignCallbackDoesNotEdit(t *testing.T) {
-	tg := &fakeTG{}
-	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(&fakeStore{}, api, &countingSTT{}, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 22,
 	  "callback_query": {
@@ -591,11 +591,11 @@ func TestHandleForeignCallbackDoesNotEdit(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.edits) != 0 || len(tg.deleted) != 0 {
-		t.Fatalf("foreign tap must be ignored, edits=%v deleted=%v", tg.edits, tg.deleted)
+	if len(api.edits) != 0 || len(api.deleted) != 0 {
+		t.Fatalf("foreign tap must be ignored, edits=%v deleted=%v", api.edits, api.deleted)
 	}
-	if len(tg.answered) != 1 || tg.answered[0] == "" {
-		t.Fatalf("foreign tap should toast, answered=%v", tg.answered)
+	if len(api.answered) != 1 || api.answered[0] == "" {
+		t.Fatalf("foreign tap should toast, answered=%v", api.answered)
 	}
 }
 
@@ -624,7 +624,7 @@ func TestHomePanelHasAllContractButtons(t *testing.T) {
 
 func TestCallbackDataBudget(t *testing.T) {
 	owner := int64(1) << 62
-	markups := []*telegram.InlineKeyboardMarkup{}
+	markups := []*tg.InlineKeyboardMarkup{}
 	_, kb := homePanel("ru", owner)
 	markups = append(markups, kb)
 	_, kb = helpPanel("ru", owner)
@@ -650,8 +650,8 @@ func TestCallbackDataBudget(t *testing.T) {
 
 func TestLanguageCallbackSetsAndRerenders(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
-	b := New(st, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(st, api, &countingSTT{}, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 30,
 	  "callback_query": {
@@ -667,10 +667,10 @@ func TestLanguageCallbackSetsAndRerenders(t *testing.T) {
 	if st.langs[7] != "ru" {
 		t.Fatalf("language not stored: %v", st.langs)
 	}
-	if len(tg.edits) != 1 || !contains(tg.edits[0], "Язык") {
-		t.Fatalf("panel must re-render in Russian: %v", tg.edits)
+	if len(api.edits) != 1 || !contains(api.edits[0], "Язык") {
+		t.Fatalf("panel must re-render in Russian: %v", api.edits)
 	}
-	if !markupHas(tg.markups[len(tg.markups)-1], "m:7:lang:en") {
+	if !markupHas(api.markups[len(api.markups)-1], "m:7:lang:en") {
 		t.Fatal("panel must still offer the other language")
 	}
 
@@ -688,14 +688,14 @@ func TestLanguageCallbackSetsAndRerenders(t *testing.T) {
 	if err := b.Handle(context.Background(), start); err != nil {
 		t.Fatal(err)
 	}
-	if !contains(tg.sent[len(tg.sent)-1], "Голос в текст") {
-		t.Fatalf("stored language must beat profile hint: %v", tg.sent)
+	if !contains(api.sent[len(api.sent)-1], "Голос в текст") {
+		t.Fatalf("stored language must beat profile hint: %v", api.sent)
 	}
 }
 
 func TestSetCallbackOpensSettingsPanel(t *testing.T) {
-	tg := &fakeTG{}
-	b := New(&fakeStore{}, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(&fakeStore{}, api, &countingSTT{}, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 32,
 	  "callback_query": {
@@ -708,10 +708,10 @@ func TestSetCallbackOpensSettingsPanel(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.edits) != 1 || !contains(tg.edits[0], "Settings") {
-		t.Fatalf("settings panel = %v", tg.edits)
+	if len(api.edits) != 1 || !contains(api.edits[0], "Settings") {
+		t.Fatalf("settings panel = %v", api.edits)
 	}
-	kb := tg.markups[len(tg.markups)-1]
+	kb := api.markups[len(api.markups)-1]
 	if !markupHas(kb, "m:7:set:diarize:1") || len(settings.Keys()) != 7 {
 		t.Fatalf("settings panel markup = %#v", kb)
 	}
@@ -719,8 +719,8 @@ func TestSetCallbackOpensSettingsPanel(t *testing.T) {
 
 func TestSetCallbackAppliesDesiredValueAndRerenders(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
-	b := New(st, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(st, api, &countingSTT{}, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 33,
 	  "callback_query": {
@@ -739,15 +739,15 @@ func TestSetCallbackAppliesDesiredValueAndRerenders(t *testing.T) {
 	if !st.cfg(7).Diarize {
 		t.Fatal("diarize must be on after toggle")
 	}
-	if len(tg.edits) != 1 || !contains(tg.edits[0], "Settings") {
-		t.Fatalf("panel must re-render: %v", tg.edits)
+	if len(api.edits) != 1 || !contains(api.edits[0], "Settings") {
+		t.Fatalf("panel must re-render: %v", api.edits)
 	}
 }
 
 func TestUnknownToggleKeyIgnored(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
-	b := New(st, tg, &countingSTT{}, logger())
+	api := &fakeTG{}
+	b := New(st, api, &countingSTT{}, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 34,
 	  "callback_query": {
@@ -760,8 +760,8 @@ func TestUnknownToggleKeyIgnored(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(st.toggled) != 0 || len(tg.edits) != 0 {
-		t.Fatalf("bogus key must be ignored: toggled=%v edits=%v", st.toggled, tg.edits)
+	if len(st.toggled) != 0 || len(api.edits) != 0 {
+		t.Fatalf("bogus key must be ignored: toggled=%v edits=%v", st.toggled, api.edits)
 	}
 }
 
@@ -769,9 +769,9 @@ func TestTranscribePassesUserOptions(t *testing.T) {
 	st := &fakeStore{userCfg: map[int64]settings.Settings{
 		7: {SmartFormat: true, Paragraphs: true, Diarize: true, Quote: true},
 	}}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: "hi"}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 35,
 	  "message": {
@@ -795,10 +795,10 @@ func TestTranscribePassesUserOptions(t *testing.T) {
 
 func TestCacheVariantsSeparateUsers(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: "shared file"}}
-	b := New(st, tg, stt, logger())
-	voice := func(updateID, userID int64) telegram.Update {
+	b := New(st, api, stt, logger())
+	voice := func(updateID, userID int64) tg.Update {
 		return parseUpd(t, `{
 		  "update_id": `+itoa64(updateID)+`,
 		  "message": {
@@ -842,9 +842,9 @@ func TestLongTranscriptUsesOneRichMessageWithinLimit(t *testing.T) {
 	st := &fakeStore{userCfg: map[int64]settings.Settings{
 		7: {SmartFormat: true, Paragraphs: true},
 	}}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: long}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 40,
 	  "message": {
@@ -857,7 +857,7 @@ func TestLongTranscriptUsesOneRichMessageWithinLimit(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	got := tg.transcriptParts()
+	got := api.transcriptParts()
 	if len(got) != 1 || !contains(got[0], "word word word") {
 		t.Fatalf("delivered = %d parts", len(got))
 	}
@@ -870,9 +870,9 @@ func TestGroupVPLongEditsPlaceholderWithRichMessage(t *testing.T) {
 	st := &fakeStore{userCfg: map[int64]settings.Settings{
 		7: {SmartFormat: true, Paragraphs: true},
 	}}
-	tg := &fakeTG{}
-	stt := &countingSTT{res: deepgram.Result{Text: long}, tg: tg}
-	b := New(st, tg, stt, logger())
+	api := &fakeTG{}
+	stt := &countingSTT{res: deepgram.Result{Text: long}, api: api}
+	b := New(st, api, stt, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 41,
 	  "message": {
@@ -887,12 +887,12 @@ func TestGroupVPLongEditsPlaceholderWithRichMessage(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.ephemeralRich) != 1 || !contains(tg.ephemeralRich[0], "word word word") {
-		t.Fatalf("ephemeral rich = %d", len(tg.ephemeralRich))
+	if len(api.ephemeralRich) != 1 || !contains(api.ephemeralRich[0], "word word word") {
+		t.Fatalf("ephemeral rich = %d", len(api.ephemeralRich))
 	}
-	for _, c := range tg.calls {
+	for _, c := range api.calls {
 		if c == "sendEphemeralRich" || c == "sendRich" {
-			t.Fatalf("no new message may be sent after the 15-second window: %v", tg.calls)
+			t.Fatalf("no new message may be sent after the 15-second window: %v", api.calls)
 		}
 	}
 }
@@ -900,9 +900,9 @@ func TestGroupVPLongEditsPlaceholderWithRichMessage(t *testing.T) {
 func TestOverRichLimitSplitsIntoRichMessages(t *testing.T) {
 	long := strings.Repeat("wörd ", 10000)
 	st := &fakeStore{}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: long}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	upd := parseUpd(t, `{
 	  "update_id": 42,
 	  "message": {
@@ -915,7 +915,7 @@ func TestOverRichLimitSplitsIntoRichMessages(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	got := tg.transcriptParts()
+	got := api.transcriptParts()
 	if len(got) < 2 {
 		t.Fatalf("over-limit transcript must be split, parts=%d", len(got))
 	}
@@ -931,13 +931,13 @@ func TestOverRichLimitSplitsIntoRichMessages(t *testing.T) {
 // that burns its three retries and dies.
 func TestSendRetriesAfterChatMigration(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{richErr: &telegram.APIError{
+	api := &fakeTG{richErr: &tg.APIError{
 		Method: "sendRichMessage", StatusCode: 400, ErrorCode: 400,
 		Description:     "Bad Request: group chat was upgraded to a supergroup chat",
 		MigrateToChatID: -1001,
 	}}
 	stt := &countingSTT{res: deepgram.Result{Text: "migrated text"}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	b.self = "voicetextbot"
 	upd := parseUpd(t, `{
 	  "update_id": 43,
@@ -952,11 +952,11 @@ func TestSendRetriesAfterChatMigration(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if got := tg.transcriptParts(); len(got) != 1 || !contains(got[0], "migrated text") {
+	if got := api.transcriptParts(); len(got) != 1 || !contains(got[0], "migrated text") {
 		t.Fatalf("delivered = %v", got)
 	}
-	if len(tg.richChats) != 1 || tg.richChats[0] != -1001 {
-		t.Fatalf("resend must target the migrated chat, got %v", tg.richChats)
+	if len(api.richChats) != 1 || api.richChats[0] != -1001 {
+		t.Fatalf("resend must target the migrated chat, got %v", api.richChats)
 	}
 	if st.jobs[43] != "sent" {
 		t.Fatalf("job status = %q", st.jobs[43])
@@ -967,7 +967,7 @@ func contains(s, sub string) bool {
 	return strings.Contains(s, sub)
 }
 
-func markupHas(m *telegram.InlineKeyboardMarkup, data string) bool {
+func markupHas(m *tg.InlineKeyboardMarkup, data string) bool {
 	if m == nil {
 		return false
 	}
@@ -1008,9 +1008,9 @@ func itoa64(n int64) string {
 // the same transcript twice.
 func TestRetryAfterDeliveryDoesNotResend(t *testing.T) {
 	st := &fakeStore{}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: "only once", WordCount: 2}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	b.self = "voicetextbot"
 	upd := parseUpd(t, `{
 	  "update_id": 70,
@@ -1034,7 +1034,7 @@ func TestRetryAfterDeliveryDoesNotResend(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if got := tg.transcriptParts(); len(got) != 1 {
+	if got := api.transcriptParts(); len(got) != 1 {
 		t.Fatalf("the retry resent the transcript: %v", got)
 	}
 	if stt.calls != 1 {
@@ -1052,9 +1052,9 @@ func TestRetryAfterDeliveryDoesNotResend(t *testing.T) {
 // as if nothing happened once it reaches a terminal state.
 func TestTerminalJobIsNeverReprocessed(t *testing.T) {
 	st := &fakeStore{jobs: map[int64]string{71: "sent"}}
-	tg := &fakeTG{}
+	api := &fakeTG{}
 	stt := &countingSTT{res: deepgram.Result{Text: "x"}}
-	b := New(st, tg, stt, logger())
+	b := New(st, api, stt, logger())
 	b.self = "voicetextbot"
 	upd := parseUpd(t, `{
 	  "update_id": 71,
@@ -1068,7 +1068,7 @@ func TestTerminalJobIsNeverReprocessed(t *testing.T) {
 	if err := b.Handle(context.Background(), upd); err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.transcriptParts()) != 0 || stt.calls != 0 {
-		t.Fatalf("a terminal job must be a no-op, parts=%v calls=%d", tg.transcriptParts(), stt.calls)
+	if len(api.transcriptParts()) != 0 || stt.calls != 0 {
+		t.Fatalf("a terminal job must be a no-op, parts=%v calls=%d", api.transcriptParts(), stt.calls)
 	}
 }

@@ -94,7 +94,7 @@ var (
 	StaleJobsReaped = registerCounter("voicy_stale_jobs_reaped_total", "Jobs failed by the reaper after being abandoned.")
 
 	JobFailures     = registerVec("voicy_job_failures_total", "Transcription jobs that failed, by stage.", "stage")
-	TelegramErrors  = registerVec("voicy_telegram_errors_total", "Telegram API errors, by method.", "method")
+	TelegramErrors  = registerVec("voicy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
 	TelegramLimited = registerVec("voicy_telegram_rate_limited_total", "Telegram 429 responses observed, by method.", "method")
 )
 

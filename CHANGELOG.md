@@ -8,6 +8,63 @@ GitHub Releases.
 
 ## Unreleased
 
+## v0.0.1-beta.2 - 2026-09-08
+
+Voicy's Telegram client is no longer its own, and it will not start against a
+server that cannot serve it.
+
+### Changed
+
+- Telegram now goes through `github.com/FreshLabDev/tg`, the client shared by
+  the bot family, and `internal/telegram` is gone. The transport, retries,
+  token redaction, rich messages and the 10.3 ephemeral contract were the same
+  code in three bots and had already drifted apart; they now have one home.
+  Nothing about Voicy's behaviour changes with them.
+- `internal/media.Of` replaces `telegram.Message.Media()`. Go cannot put a
+  method on another package's type, and the order in which attachments are
+  preferred — speech first — was always a Voicy decision rather than a
+  Telegram one.
+- `voicy_telegram_errors_total` now also counts transport failures (DNS,
+  connect, reset). They were invisible before, because only a parsed API error
+  reached the counter.
+
+### Added
+
+- A preflight at startup. Voicy names the methods it cannot work without —
+  `sendRichMessage` and `editEphemeralMessageText` — and refuses to start when
+  the Bot API server does not implement them. A server behind the bot answers
+  `404 method not found` to every rich message, which used to mean a bot that
+  polled happily and answered nothing at all.
+- `BOT_API_FILES_DIR`, required when `TELEGRAM_API_BASE` is self-hosted, and
+  `TELEGRAM_READY_WAIT` (default 30s) for a server that is still booting.
+
+### Fixed
+
+- Media on a self-hosted Bot API server is read from disk again. Such a server
+  runs with `--local`, and a `--local` server serves no files over HTTP at all:
+  its `/file/bot<token>/…` route answers 404 in every version. Fetching over
+  the network, introduced in v0.0.1-alpha.10, could therefore never work. Only
+  this bot's own directory is mounted — the parent holds one directory per bot
+  named after that bot's token — and the mount is verified at startup instead
+  of failing on the first voice message.
+
+### Operations
+
+- The WS04 stack mounts the bot's own media directory on the Bot API server
+  and runs as uid 101, the user that server writes as. `BOT_API_HOST_DIR` and
+  `BOT_API_FILES_DIR` name that directory on the host and in the container.
+  Files are removed after transcription, which a local server never does on
+  its own.
+- The mount needs Compose's long volume syntax *with* a `bind` option. Both
+  paths contain the bot token, a token contains a colon, and Compose flattens
+  an option-less long mount back into `source:target:rw`, which the daemon
+  then splits in the wrong places.
+- Production runs against `telegram-bot-api-next`, the FreshLab-built Bot API
+  10.3 server, while the older shared server keeps the bots that have not
+  moved. Moving a bot between servers is: stop it, `logOut` on the server it
+  leaves, then start it on the new one. A running bot re-registers itself
+  within a second, so the stop is not optional.
+
 ## v0.0.1-beta.1 - 2026-09-06
 
 Voicy speaks the sixteen languages the bot family shares, transcribes audio
