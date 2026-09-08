@@ -21,8 +21,12 @@ services:
     # directory has to be mounted — but only this bot's own subdirectory. The
     # parent holds one subdirectory per bot, each named after that bot's full
     # token, and mounting it would hand Voicy every other bot's credentials.
+    # Long syntax, not "source:target": a bot token contains a colon, and the
+    # short form splits on colons.
     volumes:
-      - ${BOT_API_HOST_DIR:-/opt/stacks/telegram-bot-api/data}/${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set for the Bot API files mount}:/var/lib/telegram-bot-api/${TELEGRAM_BOT_TOKEN}
+      - type: bind
+        source: ${BOT_API_HOST_DIR:-/opt/stacks/telegram-bot-api/data}/${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set for the Bot API files mount}
+        target: /var/lib/telegram-bot-api/${TELEGRAM_BOT_TOKEN}
     # The Bot API server writes as uid 101 with mode 0750. Voicy has to read
     # those files and delete them afterwards, because a local server never
     # reclaims what it produced.

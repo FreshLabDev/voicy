@@ -46,7 +46,9 @@ GitHub Releases.
 ### Operations
 
 - The WS04 stack mounts `<bot api data>/<token>` and runs as uid 101, the user
-  the Bot API server writes as. Files are removed after transcription, which a
+  the Bot API server writes as. The mount uses Compose's long volume syntax:
+  the path contains the token, the token contains a colon, and `source:target`
+  splits on colons. Files are removed after transcription, which a
   local server never does on its own.
 
 ## v0.0.1-beta.1 - 2026-09-06
