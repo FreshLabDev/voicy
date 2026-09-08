@@ -215,7 +215,7 @@ func (f *fakeTG) SendEphemeralMessage(_ context.Context, _, _, _ int64, text str
 	f.ephemeral = append(f.ephemeral, text)
 	return tg.Message{MessageID: 501, EphemeralMessageID: 501}, nil
 }
-func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text string, _ *tg.InlineKeyboardMarkup) (tg.Message, error) {
+func (f *fakeTG) SendRichHTML(_ context.Context, chatID, _ int64, _ int, text string, _ *tg.InlineKeyboardMarkup, _ ...tg.RichOption) (tg.Message, error) {
 	f.mu.Lock()
 	hook := f.onRich
 	f.calls = append(f.calls, "sendRich")
@@ -251,14 +251,14 @@ func (f *fakeTG) transcriptParts() []string {
 	return out
 }
 
-func (f *fakeTG) EditMessageRichHTML(_ context.Context, _, _ int64, text string, _ *tg.InlineKeyboardMarkup) error {
+func (f *fakeTG) EditMessageRichHTML(_ context.Context, _, _ int64, text string, _ *tg.InlineKeyboardMarkup, _ ...tg.RichOption) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editRich")
 	f.richEdits = append(f.richEdits, text)
 	return nil
 }
-func (f *fakeTG) EditEphemeralRichHTML(_ context.Context, _, _, _ int64, text string, _ *tg.InlineKeyboardMarkup) error {
+func (f *fakeTG) EditEphemeralRichHTML(_ context.Context, _, _, _ int64, text string, _ *tg.InlineKeyboardMarkup, _ ...tg.RichOption) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "editEphemeralRich")

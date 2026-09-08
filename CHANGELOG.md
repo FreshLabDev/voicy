@@ -8,6 +8,23 @@ GitHub Releases.
 
 ## Unreleased
 
+### Security
+
+- Through `tg` v0.0.1-alpha.6: the bot token can no longer reach a log line
+  through an error body echoed by something in front of the Bot API server, nor
+  through the file path wrapped inside a local-file error. A symlink in the
+  server's media directory can no longer read a file out of another bot's
+  directory.
+
+### Fixed
+
+- Through the client: an `ok=false` answer carried on a 2xx is an API error
+  again, so rate limits and edit-not-modified are classified rather than
+  slipping through as untyped failures; a startup preflight waits through a
+  Bot API server that is still booting instead of exiting on its first 502;
+  and `TELEGRAM_READY_WAIT` now bounds the whole startup check rather than only
+  the pauses inside it.
+
 ## v0.0.1-beta.2 - 2026-09-08
 
 Voicy's Telegram client is no longer its own, and it will not start against a
