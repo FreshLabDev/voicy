@@ -8,8 +8,13 @@ Keep Voicy minimal, private by default, and production-minded.
 - PostgreSQL is the only durable store. Domain tables live in a `voicy`
   schema. Telegram identity and presence are delegated to shared `core`
   (`core.touch('voicy', …)`).
-- Telegram uses a first-party HTTP client in `internal/telegram`. Long polling
-  only.
+- Telegram goes through `github.com/FreshLabDev/tg`, the client shared by the
+  bot family. Voicy keeps no private HTTP client: transport, retries, token
+  redaction, rich and ephemeral messages, and local Bot API files all live
+  there. Long polling only.
+- `Preflight` runs before the bot starts and names the methods Voicy cannot
+  work without. A server that lacks them is a startup failure, never a bot
+  that polls and answers nothing.
 
 ## Product Boundaries
 

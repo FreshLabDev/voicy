@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/i18n"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 	"github.com/FreshLabDev/voicy/internal/transcript"
 )
 
@@ -35,10 +35,10 @@ func parseMenuCB(data string) (owner int64, action string, ok bool) {
 	return owner, parts[2], true
 }
 
-func homePanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarkup) {
-	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
+func homePanel(lang string, owner int64) (string, *tg.InlineKeyboardMarkup) {
+	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
 		{
-			{Text: transcript.BtnLanguage(lang), CallbackData: cb(owner, "lang"), Style: telegram.StylePrimary},
+			{Text: transcript.BtnLanguage(lang), CallbackData: cb(owner, "lang"), Style: tg.StylePrimary},
 			{Text: transcript.BtnStats(lang), CallbackData: cb(owner, "stats")},
 		},
 		{
@@ -47,24 +47,24 @@ func homePanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarkup
 		},
 		{
 			{Text: transcript.BtnAbout(lang), CallbackData: cb(owner, "about")},
-			{Text: transcript.BtnClose(lang), CallbackData: cb(owner, "close"), Style: telegram.StyleDanger},
+			{Text: transcript.BtnClose(lang), CallbackData: cb(owner, "close"), Style: tg.StyleDanger},
 		},
 	}}
 	return transcript.HomeText(lang), kb
 }
 
-func helpPanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarkup) {
+func helpPanel(lang string, owner int64) (string, *tg.InlineKeyboardMarkup) {
 	return transcript.HelpText(lang), navMarkup(lang, owner)
 }
 
-func statsPanel(lang string, owner int64, snap stats.Snapshot, global bool) (string, *telegram.InlineKeyboardMarkup) {
+func statsPanel(lang string, owner int64, snap stats.Snapshot, global bool) (string, *tg.InlineKeyboardMarkup) {
 	personalLabel, globalLabel := transcript.TabPersonal(lang), transcript.TabGlobal(lang)
 	if global {
 		globalLabel = toggleOn + globalLabel
 	} else {
 		personalLabel = toggleOn + personalLabel
 	}
-	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
+	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
 		{
 			{Text: personalLabel, CallbackData: cb(owner, "statsp")},
 			{Text: globalLabel, CallbackData: cb(owner, "statsg")},
@@ -73,51 +73,51 @@ func statsPanel(lang string, owner int64, snap stats.Snapshot, global bool) (str
 	return transcript.StatsText(lang, snap, global), withNav(kb, lang, owner)
 }
 
-func aboutPanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarkup) {
+func aboutPanel(lang string, owner int64) (string, *tg.InlineKeyboardMarkup) {
 	return transcript.AboutText(lang), navMarkup(lang, owner)
 }
 
 // languagePanel lists every language the fleet shares, two per row. The flag and
 // native name come from i18n so Voicy's picker looks like searchy's and vido's.
-func languagePanel(lang string, owner int64) (string, *telegram.InlineKeyboardMarkup) {
+func languagePanel(lang string, owner int64) (string, *tg.InlineKeyboardMarkup) {
 	opts := i18n.LANGUAGE_OPTIONS
-	rows := make([][]telegram.InlineKeyboardButton, 0, (len(opts)+1)/2)
+	rows := make([][]tg.InlineKeyboardButton, 0, (len(opts)+1)/2)
 	for i := 0; i < len(opts); i += 2 {
-		row := []telegram.InlineKeyboardButton{languageButton(opts[i], lang, owner)}
+		row := []tg.InlineKeyboardButton{languageButton(opts[i], lang, owner)}
 		if i+1 < len(opts) {
 			row = append(row, languageButton(opts[i+1], lang, owner))
 		}
 		rows = append(rows, row)
 	}
-	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
+	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 	return transcript.LanguageText(lang), withNav(kb, lang, owner)
 }
 
-func languageButton(opt i18n.LangOption, lang string, owner int64) telegram.InlineKeyboardButton {
-	return telegram.InlineKeyboardButton{
+func languageButton(opt i18n.LangOption, lang string, owner int64) tg.InlineKeyboardButton {
+	return tg.InlineKeyboardButton{
 		Text:         toggleMark(opt.Code == lang) + opt.Label,
 		CallbackData: cb(owner, "lang:"+opt.Code),
 	}
 }
 
-func settingsPanel(lang string, owner int64, s settings.Settings) (string, *telegram.InlineKeyboardMarkup) {
-	var rows [][]telegram.InlineKeyboardButton
+func settingsPanel(lang string, owner int64, s settings.Settings) (string, *tg.InlineKeyboardMarkup) {
+	var rows [][]tg.InlineKeyboardButton
 	keys := settings.Keys()
 	for i := 0; i < len(keys); i += 2 {
-		var row []telegram.InlineKeyboardButton
+		var row []tg.InlineKeyboardButton
 		for _, key := range keys[i:min(i+2, len(keys))] {
 			next := "1"
 			if s.IsOn(key) {
 				next = "0"
 			}
-			row = append(row, telegram.InlineKeyboardButton{
+			row = append(row, tg.InlineKeyboardButton{
 				Text:         toggleMark(s.IsOn(key)) + transcript.SettingLabel(lang, key),
 				CallbackData: cb(owner, "set:"+key+":"+next),
 			})
 		}
 		rows = append(rows, row)
 	}
-	kb := &telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
+	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 	return transcript.SettingsText(lang), withNav(kb, lang, owner)
 }
 
@@ -128,20 +128,20 @@ func toggleMark(on bool) string {
 	return toggleOff
 }
 
-func navMarkup(lang string, owner int64) *telegram.InlineKeyboardMarkup {
-	return &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{
+func navMarkup(lang string, owner int64) *tg.InlineKeyboardMarkup {
+	return &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{
 		{
 			{Text: transcript.BtnBack(lang), CallbackData: cb(owner, "home")},
-			{Text: transcript.BtnClose(lang), CallbackData: cb(owner, "close"), Style: telegram.StyleDanger},
+			{Text: transcript.BtnClose(lang), CallbackData: cb(owner, "close"), Style: tg.StyleDanger},
 		},
 	}}
 }
 
-func withNav(kb *telegram.InlineKeyboardMarkup, lang string, owner int64) *telegram.InlineKeyboardMarkup {
+func withNav(kb *tg.InlineKeyboardMarkup, lang string, owner int64) *tg.InlineKeyboardMarkup {
 	kb.InlineKeyboard = append(kb.InlineKeyboard,
-		[]telegram.InlineKeyboardButton{
+		[]tg.InlineKeyboardButton{
 			{Text: transcript.BtnBack(lang), CallbackData: cb(owner, "home")},
-			{Text: transcript.BtnClose(lang), CallbackData: cb(owner, "close"), Style: telegram.StyleDanger},
+			{Text: transcript.BtnClose(lang), CallbackData: cb(owner, "close"), Style: tg.StyleDanger},
 		})
 	return kb
 }

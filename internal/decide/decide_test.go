@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/FreshLabDev/voicy/internal/telegram"
+	"github.com/FreshLabDev/tg"
 )
 
-func mustUpdate(t *testing.T, raw string) telegram.Update {
+func mustUpdate(t *testing.T, raw string) tg.Update {
 	t.Helper()
-	var upd telegram.Update
+	var upd tg.Update
 	if err := json.Unmarshal([]byte(raw), &upd); err != nil {
 		t.Fatal(err)
 	}

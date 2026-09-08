@@ -8,6 +8,47 @@ GitHub Releases.
 
 ## Unreleased
 
+### Changed
+
+- Telegram now goes through `github.com/FreshLabDev/tg`, the client shared by
+  the bot family, and `internal/telegram` is gone. The transport, retries,
+  token redaction, rich messages and the 10.3 ephemeral contract were the same
+  code in three bots and had already drifted apart; they now have one home.
+  Nothing about Voicy's behaviour changes with them.
+- `internal/media.Of` replaces `telegram.Message.Media()`. Go cannot put a
+  method on another package's type, and the order in which attachments are
+  preferred — speech first — was always a Voicy decision rather than a
+  Telegram one.
+- `voicy_telegram_errors_total` now also counts transport failures (DNS,
+  connect, reset). They were invisible before, because only a parsed API error
+  reached the counter.
+
+### Added
+
+- A preflight at startup. Voicy names the methods it cannot work without —
+  `sendRichMessage` and `editEphemeralMessageText` — and refuses to start when
+  the Bot API server does not implement them. A server behind the bot answers
+  `404 method not found` to every rich message, which used to mean a bot that
+  polled happily and answered nothing at all.
+- `BOT_API_FILES_DIR`, required when `TELEGRAM_API_BASE` is self-hosted, and
+  `TELEGRAM_READY_WAIT` (default 30s) for a server that is still booting.
+
+### Fixed
+
+- Media on a self-hosted Bot API server is read from disk again. Such a server
+  runs with `--local`, and a `--local` server serves no files over HTTP at all:
+  its `/file/bot<token>/…` route answers 404 in every version. Fetching over
+  the network, introduced in v0.0.1-alpha.10, could therefore never work. Only
+  this bot's own directory is mounted — the parent holds one directory per bot
+  named after that bot's token — and the mount is verified at startup instead
+  of failing on the first voice message.
+
+### Operations
+
+- The WS04 stack mounts `<bot api data>/<token>` and runs as uid 101, the user
+  the Bot API server writes as. Files are removed after transcription, which a
+  local server never does on its own.
+
 ## v0.0.1-beta.1 - 2026-09-06
 
 Voicy speaks the sixteen languages the bot family shares, transcribes audio

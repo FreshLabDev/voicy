@@ -96,3 +96,35 @@ func TestConcurrencyAndStatsDefaults(t *testing.T) {
 		})
 	}
 }
+
+// A self-hosted Bot API server runs with --local: it answers getFile with an
+// absolute path on its own disk and serves nothing over HTTP. Without a
+// mounted data directory every transcription would fail on download, so the
+// misconfiguration has to be caught before the process starts.
+func TestLoadRequiresBotAPIFilesDirForASelfHostedServer(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "tok")
+	t.Setenv("DEEPGRAM_API_KEY", "dg")
+	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("TELEGRAM_API_BASE", "http://telegram-bot-api:8081")
+	t.Setenv("BOT_API_FILES_DIR", "")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("want an error naming BOT_API_FILES_DIR")
+	}
+
+	t.Setenv("BOT_API_FILES_DIR", "/var/lib/telegram-bot-api")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.BotAPIFilesDir != "/var/lib/telegram-bot-api" {
+		t.Fatalf("BotAPIFilesDir = %q", cfg.BotAPIFilesDir)
+	}
+
+	// Telegram's own server needs none of this.
+	t.Setenv("TELEGRAM_API_BASE", DefaultTelegramAPIBase)
+	t.Setenv("BOT_API_FILES_DIR", "")
+	if _, err := Load(); err != nil {
+		t.Fatalf("the cloud endpoint must not require a files directory: %v", err)
+	}
+}

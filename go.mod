@@ -4,7 +4,10 @@ module github.com/FreshLabDev/voicy
 
 go 1.26.6
 
-require github.com/jackc/pgx/v5 v5.9.2
+require (
+	github.com/FreshLabDev/tg v0.0.1-alpha.1
+	github.com/jackc/pgx/v5 v5.9.2
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

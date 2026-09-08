@@ -32,6 +32,14 @@ type Config struct {
 	FFmpegPath          string
 	MediaTmpDir         string
 	ExtractAboveBytes   int64
+	// BotAPIFilesDir is the working directory of a self-hosted Bot API server
+	// as this process sees it. Such a server runs with --local, which means it
+	// answers getFile with an absolute path and serves nothing over HTTP, so
+	// the directory has to be mounted.
+	BotAPIFilesDir string
+	// TelegramReadyWait allows a self-hosted server to still be starting: it
+	// shares a lifecycle with the bot and often loses the race by seconds.
+	TelegramReadyWait time.Duration
 }
 
 func Load() (Config, error) {
@@ -75,13 +83,24 @@ func Load() (Config, error) {
 	if _, set := os.LookupEnv("FFMPEG_PATH"); !set {
 		cfg.FFmpegPath = "ffmpeg"
 	}
+	cfg.BotAPIFilesDir = strings.TrimRight(strings.TrimSpace(os.Getenv("BOT_API_FILES_DIR")), "/")
 	cfg.MediaTmpDir = strings.TrimSpace(os.Getenv("MEDIA_TMP_DIR"))
 	cfg.StatsTimezone = valueOrDefault("STATS_TIMEZONE", "Europe/Kyiv")
 	if !validTimezone(cfg.StatsTimezone) {
 		return Config{}, fmt.Errorf("STATS_TIMEZONE must be an IANA zone name such as Europe/Kyiv")
 	}
+	if cfg.TelegramReadyWait, err = time.ParseDuration(valueOrDefault("TELEGRAM_READY_WAIT", "30s")); err != nil || cfg.TelegramReadyWait < 0 {
+		return Config{}, fmt.Errorf("TELEGRAM_READY_WAIT must be a duration")
+	}
 	if !strings.HasPrefix(cfg.TelegramAPIBase, "http://") && !strings.HasPrefix(cfg.TelegramAPIBase, "https://") {
 		return Config{}, fmt.Errorf("TELEGRAM_API_BASE must be an http or https URL")
+	}
+	// A self-hosted server runs with --local, and a --local server answers
+	// getFile with an absolute path while serving nothing over HTTP. Without a
+	// mounted data directory every transcription would fail on download, so
+	// this is a configuration error rather than a runtime surprise.
+	if cfg.TelegramAPIBase != DefaultTelegramAPIBase && cfg.BotAPIFilesDir == "" {
+		return Config{}, fmt.Errorf("BOT_API_FILES_DIR is required with a self-hosted TELEGRAM_API_BASE: such a server hands over files by absolute path and serves none over HTTP, so its data directory must be mounted")
 	}
 	if cfg.TelegramBotToken == "" {
 		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")

@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/db"
 	"github.com/FreshLabDev/voicy/internal/decide"
 	"github.com/FreshLabDev/voicy/internal/deepgram"
@@ -25,7 +26,6 @@ import (
 	"github.com/FreshLabDev/voicy/internal/metrics"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
-	"github.com/FreshLabDev/voicy/internal/telegram"
 	"github.com/FreshLabDev/voicy/internal/transcript"
 )
 
@@ -43,7 +43,7 @@ const (
 )
 
 type Store interface {
-	Touch(context.Context, telegram.User, *telegram.Chat) error
+	Touch(context.Context, tg.User, *tg.Chat) error
 	GetCached(ctx context.Context, fileID, variant string) (db.Cached, bool, error)
 	TranscriptByToken(ctx context.Context, userID int64, token string) (db.Cached, bool, error)
 	SaveTranscript(ctx context.Context, fileID, uniqueID, kind, variant string, res deepgram.Result) error
@@ -63,21 +63,21 @@ type Store interface {
 
 type Telegram interface {
 	DeleteWebhook(context.Context) error
-	GetUpdates(context.Context, int64, int) ([]telegram.Update, error)
-	GetMe(context.Context) (telegram.Me, error)
-	SetMyCommandsForScope(context.Context, []telegram.BotCommand, *telegram.BotCommandScope) error
-	SendMessage(context.Context, int64, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
-	SendEphemeralMessage(context.Context, int64, int64, int64, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
-	SendRichHTML(context.Context, int64, int64, int, string, *telegram.InlineKeyboardMarkup) (telegram.Message, error)
-	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *telegram.InlineKeyboardMarkup) error
-	EditEphemeralRichHTML(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, body string, markup *telegram.InlineKeyboardMarkup) error
-	EditMessageText(context.Context, int64, int64, string, *telegram.InlineKeyboardMarkup) error
-	EditMessageRichHTML(ctx context.Context, chatID, messageID int64, body string, markup *telegram.InlineKeyboardMarkup) error
+	GetUpdates(context.Context, int64, int) ([]tg.Update, error)
+	GetMe(context.Context) (tg.Me, error)
+	SetMyCommandsForScope(context.Context, []tg.BotCommand, *tg.BotCommandScope) error
+	SendMessage(context.Context, int64, string, *tg.InlineKeyboardMarkup) (tg.Message, error)
+	SendEphemeralMessage(context.Context, int64, int64, int64, string, *tg.InlineKeyboardMarkup) (tg.Message, error)
+	SendRichHTML(context.Context, int64, int64, int, string, *tg.InlineKeyboardMarkup) (tg.Message, error)
+	EditEphemeralMessageText(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, text string, markup *tg.InlineKeyboardMarkup) error
+	EditEphemeralRichHTML(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64, body string, markup *tg.InlineKeyboardMarkup) error
+	EditMessageText(context.Context, int64, int64, string, *tg.InlineKeyboardMarkup) error
+	EditMessageRichHTML(ctx context.Context, chatID, messageID int64, body string, markup *tg.InlineKeyboardMarkup) error
 	DeleteMessage(context.Context, int64, int64) error
 	DeleteEphemeralMessage(ctx context.Context, chatID, receiverUserID, ephemeralMessageID int64) error
 	AnswerCallbackQuery(context.Context, string, string) error
 	SendChatAction(context.Context, int64, int, string) error
-	GetFile(context.Context, string) (telegram.File, error)
+	GetFile(context.Context, string) (tg.File, error)
 	DownloadToFile(ctx context.Context, filePath, dst string, maxBytes int64) error
 }
 
@@ -173,7 +173,7 @@ func (b *Bot) RegisterCommands(ctx context.Context) error {
 		if text == "" {
 			text = i18n.DefaultLang
 		}
-		private := []telegram.BotCommand{
+		private := []tg.BotCommand{
 			{Command: "start", Description: i18n.T(text, "cmd.start")},
 			{Command: "stats", Description: i18n.T(text, "cmd.stats")},
 			{Command: "language", Description: i18n.T(text, "cmd.language")},
@@ -181,16 +181,16 @@ func (b *Bot) RegisterCommands(ctx context.Context) error {
 			{Command: "about", Description: i18n.T(text, "cmd.about")},
 		}
 		if err := b.tg.SetMyCommandsForScope(ctx, private,
-			&telegram.BotCommandScope{Type: "all_private_chats", LanguageCode: lang}); err != nil {
+			&tg.BotCommandScope{Type: "all_private_chats", LanguageCode: lang}); err != nil {
 			return err
 		}
-		group := []telegram.BotCommand{
+		group := []tg.BotCommand{
 			{Command: "start", Description: i18n.T(text, "cmd.start_group"), IsEphemeral: true},
 			{Command: "v", Description: i18n.T(text, "cmd.v")},
 			{Command: "vp", Description: i18n.T(text, "cmd.vp"), IsEphemeral: true},
 		}
 		if err := b.tg.SetMyCommandsForScope(ctx, group,
-			&telegram.BotCommandScope{Type: "all_group_chats", LanguageCode: lang}); err != nil {
+			&tg.BotCommandScope{Type: "all_group_chats", LanguageCode: lang}); err != nil {
 			return err
 		}
 	}
@@ -307,7 +307,7 @@ func (b *Bot) Run(ctx context.Context) error {
 //
 // The batch is a barrier: it returns only when every update is finished, which
 // is what makes advancing the offset afterwards safe.
-func (b *Bot) processBatch(ctx context.Context, updates []telegram.Update) {
+func (b *Bot) processBatch(ctx context.Context, updates []tg.Update) {
 	groups := groupByUser(updates)
 	if len(groups) == 1 {
 		for _, upd := range groups[0] {
@@ -322,7 +322,7 @@ func (b *Bot) processBatch(ctx context.Context, updates []telegram.Update) {
 	var wg sync.WaitGroup
 	for _, group := range groups {
 		wg.Add(1)
-		go func(group []telegram.Update) {
+		go func(group []tg.Update) {
 			defer wg.Done()
 			select {
 			case slots <- struct{}{}:
@@ -343,9 +343,9 @@ func (b *Bot) processBatch(ctx context.Context, updates []telegram.Update) {
 
 // groupByUser splits a batch into per-user runs, preserving both the order of
 // users and the order of each user's updates.
-func groupByUser(updates []telegram.Update) [][]telegram.Update {
+func groupByUser(updates []tg.Update) [][]tg.Update {
 	index := map[int64]int{}
-	var groups [][]telegram.Update
+	var groups [][]tg.Update
 	for _, upd := range updates {
 		id := updateUserID(upd)
 		if at, ok := index[id]; ok {
@@ -353,14 +353,14 @@ func groupByUser(updates []telegram.Update) [][]telegram.Update {
 			continue
 		}
 		index[id] = len(groups)
-		groups = append(groups, []telegram.Update{upd})
+		groups = append(groups, []tg.Update{upd})
 	}
 	return groups
 }
 
 // updateUserID identifies the person an update belongs to. Updates with no user
 // share bucket zero, which keeps them ordered among themselves.
-func updateUserID(upd telegram.Update) int64 {
+func updateUserID(upd tg.Update) int64 {
 	switch {
 	case upd.Callback != nil:
 		return upd.Callback.From.ID
@@ -372,7 +372,7 @@ func updateUserID(upd telegram.Update) int64 {
 	return 0
 }
 
-func (b *Bot) handleWithRetry(ctx context.Context, upd telegram.Update) {
+func (b *Bot) handleWithRetry(ctx context.Context, upd tg.Update) {
 	for attempt := 1; attempt <= maxUpdateRetries; attempt++ {
 		err := b.Handle(ctx, upd)
 		if err == nil {
@@ -431,7 +431,7 @@ func waitContext(ctx context.Context, d time.Duration) bool {
 }
 
 // Handle is the shipped entry point for one Telegram update.
-func (b *Bot) Handle(ctx context.Context, upd telegram.Update) error {
+func (b *Bot) Handle(ctx context.Context, upd tg.Update) error {
 	act := decide.Decide(upd, b.self)
 	if act.Kind == decide.Ignore {
 		return nil
@@ -692,7 +692,7 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 	return nil
 }
 
-func (b *Bot) editPanel(ctx context.Context, act decide.Action, text string, markup *telegram.InlineKeyboardMarkup) error {
+func (b *Bot) editPanel(ctx context.Context, act decide.Action, text string, markup *tg.InlineKeyboardMarkup) error {
 	if act.Ephemeral && act.EphemeralMessageID != 0 {
 		return b.tg.EditEphemeralMessageText(ctx, act.ChatID, act.UserID, act.EphemeralMessageID, text, markup)
 	}
@@ -861,7 +861,7 @@ var (
 // fetchAudio streams the media to a temporary file and, when the source is a
 // video or simply large, replaces it with a small mono Opus track. The returned
 // cleanup removes everything it created and is safe to call on any path.
-func (b *Bot) fetchAudio(ctx context.Context, act decide.Action, file telegram.File, prog *progress, lang string) (path, contentType string, cleanup func(), err error) {
+func (b *Bot) fetchAudio(ctx context.Context, act decide.Action, file tg.File, prog *progress, lang string) (path, contentType string, cleanup func(), err error) {
 	var created []string
 	cleanup = func() {
 		for _, p := range created {
@@ -1122,7 +1122,7 @@ func (b *Bot) sendRichParts(ctx context.Context, chatID, replyTo int64, threadID
 			// A group that turned into a supergroup mid-request answers with the
 			// new chat id. The reply target and topic belong to the old chat, so
 			// the retry drops both.
-			var apiErr *telegram.APIError
+			var apiErr *tg.APIError
 			if errors.As(err, &apiErr) && apiErr.MigrateToChatID != 0 && apiErr.MigrateToChatID != chatID {
 				b.log.Info("chat migrated; resending", "from", chatID, "to", apiErr.MigrateToChatID)
 				chatID, replyTo, threadID = apiErr.MigrateToChatID, 0, 0
