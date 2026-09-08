@@ -63,7 +63,10 @@ func run(log *slog.Logger) error {
 		tg.WithLogger(log),
 		tg.WithObserver(func(e tg.Event) {
 			switch {
-			case e.Err == nil:
+			// A capability probe is answered with a parameter error on
+			// purpose; counting it would add a phantom incident per probed
+			// method to every start.
+			case e.Probe, e.Err == nil:
 			case e.Status == http.StatusTooManyRequests:
 				metrics.TelegramLimited.Inc(e.Method)
 			default:

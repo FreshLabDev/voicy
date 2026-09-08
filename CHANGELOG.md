@@ -8,6 +8,13 @@ GitHub Releases.
 
 ## Unreleased
 
+### Fixed
+
+- `voicy_telegram_errors_total` no longer counts the startup capability probe.
+  The probe calls a method with an empty body on purpose and is answered with
+  a parameter error, so every restart recorded two Telegram errors before the
+  bot had served anything.
+
 ## v0.0.1-beta.3 - 2026-09-08
 
 Everything a review of the shared Telegram client turned up, including two
