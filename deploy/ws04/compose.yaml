@@ -23,8 +23,11 @@ services:
     # directory has to be mounted — but only this bot's own subdirectory. The
     # parent holds one subdirectory per bot, each named after that bot's full
     # token, and mounting it would hand Voicy every other bot's credentials.
-    # Long syntax, not "source:target": a bot token contains a colon, and the
-    # short form splits on colons.
+    # Long syntax, not "source:target": a bot token contains a colon and both
+    # paths contain the token, so the short form splits in the wrong places.
+    # The bind option is not decoration either -- without one, Compose flattens
+    # long syntax back into a "source:target:rw" string and the daemon's parser
+    # fails the same way ("invalid volume specification: too many colons").
     volumes:
       - type: bind
         # The directory must already exist and be owned by uid 101, the user
@@ -32,6 +35,8 @@ services:
         # root, and then neither the server nor this bot could write in it.
         source: ${BOT_API_HOST_DIR:?BOT_API_HOST_DIR must point at the Bot API server media directory on the host}/${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set for the Bot API files mount}
         target: ${BOT_API_FILES_DIR:-/var/lib/telegram-bot-api}/${TELEGRAM_BOT_TOKEN}
+        bind:
+          propagation: rprivate
     # The Bot API server writes as uid 101 with mode 0750. Voicy has to read
     # those files and delete them afterwards, because a local server never
     # reclaims what it produced.
