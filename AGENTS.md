@@ -38,7 +38,9 @@ Keep Voicy minimal, private by default, and production-minded.
 
 ## Versioning
 
-- Develop on `dev`. Publish releases from `main`.
+- Work on `dev`. Pre-releases (`-alpha.N`, `-beta.N`, `-rc.N`) are tagged on
+  `dev`; stable versions are tagged on `main`, on the merge commit from `dev`.
+  The test bot runs `dev`, the production bot runs `main`.
 - Follow `docs/versioning.md`. The first line starts at `v0.0.1-alpha.1`.
 - Use patch versions for fixes, minor versions for MVP-compatible product or
   operations improvements, and reserve `v1.0.0` for a stable production contract.
