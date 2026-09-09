@@ -2,11 +2,93 @@
 
 All notable Voicy changes are documented here.
 
-Voicy uses SemVer-style versions with pre-release tags before `v1.0.0`. Release
-notes should be copied from the relevant changelog section and lightly edited for
-GitHub Releases.
+The `## <tag>` section of this file *is* the GitHub Release body: the release
+workflow copies it verbatim and refuses a tag that has no section. Write it
+for whoever has to decide whether to upgrade.
+
+See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
+[`docs/releases.md`](docs/releases.md) for how a release is published.
 
 ## Unreleased
+
+Use this section for changes that are merged but not released yet.
+
+## v0.0.1 - 2026-09-09
+
+Everything that shows or configures now lives behind /start, the panels stopped
+wearing one shape that fitted none of them, and a callback can no longer act on
+a message it was never shown.
+
+
+### Changed
+
+- A panel callback only acts on a message it is entitled to act on. Telegram
+  lets a client send any callback data for any message it can see, not only the
+  buttons it was shown; the owner id inside the data stopped one person driving
+  another's panel, but not somebody forging their own id against a public
+  message. In a group Voicy's public messages are transcripts, so `close` could
+  have deleted someone else's, and opening a tab could have overwritten one.
+  Ephemeral messages are unaffected — they are already visible to one person —
+  and a direct chat is that person's own.
+
+- **The direct-chat command menu is one entry: `/start`.** `/stats`,
+  `/language`, `/help` and `/about` were published as commands while already
+  being buttons on the `/start` panel, so every one of them listed the same door
+  twice. Everything that shows or configures now lives behind `/start`; a
+  command is published only when it acts on a message somebody points at, which
+  is what `/v` and `/vp` do and why the group menu is unchanged. All four still
+  answer for anyone who types them from memory — they are simply no longer
+  advertised.
+- **The panel is two screens instead of one.** In a direct chat it keeps every
+  tab and no longer offers `Close`: there the whole conversation is the panel,
+  and closing it deleted the message the reader was looking at. In a group it
+  offers `Close`, because there the panel is Voicy's message sitting in somebody
+  else's feed, and it now shows only the about card and a line explaining `/v`
+  and `/vp`. Settings and the interface language are personal and shared with the
+  sibling bots through Core, so a group visitor is no longer offered switches
+  that do not mean in a group what they appear to mean.
+- **Each panel now carries the shape its content asks for.** One "title,
+  subtitle, quoted body" frame was stretched over five screens of different
+  kinds, and because the frame required a subtitle, subtitles were invented for
+  screens that had nothing to put there — "About" was captioned "Voicy". Help is
+  a list and is no longer boxed in a quote; the language screen is a heading and
+  one sentence over the picker; settings is a heading and the note the toggles
+  cannot show; the home card keeps the full frame, which is the one place it was
+  always right.
+- **`About` is the family-standard card.** It leads with the product and the
+  build it is actually running — the same version string `/healthz` reports — one
+  line of what Voicy does, then `label · value` rows: the recognition engine, the
+  repository as a link in the text under Apache-2.0, and the admin to write to.
+  The repository is deliberately a link and not a button: two ways to open one
+  address are not two actions. Localized in all sixteen languages.
+- **Button styles mark one thing per screen** rather than four scattered
+  accents. The language tab is highlighted on the direct-chat home, since nothing
+  else there is readable until the language is right; the language currently in
+  use is marked in the grid of sixteen; the open statistics tab is marked; and
+  `Close` is destructive. The seven-switch settings grid stays unstyled — its
+  state is already on the glyphs, and colouring all of it would highlight none of
+  it.
+- One versioning and release document for the whole family. `docs/versioning.md`
+  and `docs/releases.md` are now byte-identical across every Asterfield
+  repository apart from two clearly marked sections: this repository's own
+  version line, and the surface where a change here breaks something. They spell
+  out what each of the three numbers means, what the `-alpha.N` suffix counts,
+  when alpha becomes beta and when it is legitimate to skip to rc or run a
+  pre-release in production.
+- **Pre-releases are now tagged on `dev`, not `main`.** Only stable versions are
+  tagged on `main`, on the merge commit from `dev`, so `main` answers exactly one
+  question: what is in production. The test bot runs `dev`, the production bot
+  runs `main`. `release.yml` enforces this and refuses a tag on the wrong branch.
+  Earlier pre-releases in this repository were tagged on `main` under the
+  previous rule; they are left as they are.
+
+### Removed
+
+- Translation keys that nothing renders any more: `cmd.stats`, `cmd.language`,
+  `cmd.help` and `cmd.about` with the commands they described, `about.title`,
+  `about.hint` and `about.body` with the old three-part About panel, and
+  `help.hint`, `lang.hint` and `settings.hint` — the subtitles that only restated
+  their own title or their own body.
 
 ## v0.0.1-beta.4 - 2026-09-08
 
@@ -61,6 +143,14 @@ server that cannot serve it.
 
 ### Added
 
+- `docs/releases.md` gained a **Deploying** section, and `AGENTS.md` points at it.
+  Releasing was documented; deploying was not, in any repository in the family —
+  the process stopped at "deploy it" and never said how. That gap mattered more
+  after the stacks moved from building on the host to pulling a published image,
+  because the procedure changed on the same day. The section names this stack's
+  host directory, its env file, the variable that selects the image, the networks
+  it needs, and what a rollback actually is.
+
 - A preflight at startup. Voicy names the methods it cannot work without —
   `sendRichMessage` and `editEphemeralMessageText` — and refuses to start when
   the Bot API server does not implement them. A server behind the bot answers
@@ -90,7 +180,7 @@ server that cannot serve it.
   paths contain the bot token, a token contains a colon, and Compose flattens
   an option-less long mount back into `source:target:rw`, which the daemon
   then splits in the wrong places.
-- Production runs against `telegram-bot-api-next`, the FreshLab-built Bot API
+- Production runs against `telegram-bot-api-next`, the Asterfield-built Bot API
   10.3 server, while the older shared server keeps the bots that have not
   moved. Moving a bot between servers is: stop it, `logOut` on the server it
   leaves, then start it on the new one. A running bot re-registers itself

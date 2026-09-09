@@ -1,99 +1,190 @@
 # Release Process
 
-This document explains how Voicy uses `CHANGELOG.md` and GitHub Releases.
+Every Asterfield repository releases the same way. This document is identical in
+all of them; only the verification section is specific to Voicy.
 
-## Changelog Rules
+See [`versioning.md`](versioning.md) for what the numbers mean and why
+pre-releases are tagged on `dev` and stable versions on `main`.
 
-- Keep `CHANGELOG.md` as the source of truth for human-readable release history.
-- Put unreleased user-visible, operational, security, migration, or behavior
-  changes under `## Unreleased`.
-- Do not record every small refactor. Record changes that matter to users,
-  operators, contributors, or future release decisions.
-- Use these sections when relevant:
-  - `Added`
-  - `Changed`
-  - `Fixed`
-  - `Security`
-  - `Migrations`
-  - `Breaking`
-  - `Known Limitations`
-- Keep entries short and concrete.
-- Mention migration filenames in `Migrations`.
-- Mention required environment variable or deployment changes explicitly.
+## The changelog is the release notes
 
-## Preparing A Release
+`CHANGELOG.md` is the source of truth for history, and the release workflow reads
+it directly — the GitHub Release body is the `## <tag>` section, copied verbatim.
+There is no second place to write release notes, and no step where the two can
+disagree.
 
-1. Finish code and documentation changes on `dev`.
-2. Run the verification commands from `AGENTS.md`.
-3. Run a real smoke test for `beta`, `rc`, and public releases.
-4. Merge to `main`.
-5. Move relevant `Unreleased` entries into a version section:
+Which means the changelog has to be written for somebody else to read:
+
+- Put unreleased changes under `## Unreleased`, in the section that fits:
+  `Added`, `Changed`, `Fixed`, `Removed`, `Security`, `Breaking`,
+  `Known Limitations`.
+- Record what matters to a user, an operator, or the next person deciding
+  whether to upgrade. Not every refactor.
+- Say what changed and why it mattered, concretely. "Fixed a bug" tells nobody
+  anything.
+- Call out anything an operator must act on — a new or renamed environment
+  variable, a migration, a changed deployment assumption — explicitly, in its
+  own entry.
+- Exactly one `## Unreleased` section, always at the top. Two of them means the
+  next release renames the wrong one.
+
+## Publishing a pre-release
+
+A pre-release is tagged on `dev`. Nothing merges anywhere.
+
+1. Finish the work on `dev` and run the verification below.
+2. Rename `## Unreleased` to the version, and open a fresh empty `## Unreleased`
+   above it:
 
    ```text
-   ## v0.0.1-alpha.1 - 2026-08-14
+   ## Unreleased
+
+   ## v1.2.3-alpha.4 - 2026-09-09
    ```
 
-6. Keep an empty `## Unreleased` section at the top for future changes.
-7. Write release notes from the version section.
-8. Create an annotated git tag on `main`.
-9. Create a GitHub Release.
+3. Commit that on `dev` and push it.
+4. Tag the pushed commit and push the tag:
 
-## GitHub Release Notes
+   ```sh
+   git tag -a v1.2.3-alpha.4 -m "v1.2.3-alpha.4"
+   git push origin dev
+   git push origin v1.2.3-alpha.4
+   ```
 
-Use this shape for release notes (same sections as `CHANGELOG.md`):
+The tag push runs `.github/workflows/release.yml`, which re-runs the checks,
+refuses the tag if it is not on `dev` or has no changelog section, builds and
+publishes the image, and creates the GitHub Release marked as a pre-release.
 
-```text
-### Added
+Then point the test bot at it. A pre-release nobody ran is a pre-release that
+proved nothing.
 
-- Short concrete bullets from the version section of CHANGELOG.md.
+## Publishing a stable release
 
-### Operations
+A stable version is tagged on `main`, on the merge commit.
 
-- Migration notes, env, or deploy notes when relevant.
-```
+1. The version being promoted should already have been through at least one
+   pre-release that actually ran somewhere. If it has not, say why in the
+   changelog.
+2. On `dev`, rename `## Unreleased` to the stable version and push.
+3. Merge into `main` with a merge commit, so the tag has something to sit on:
 
-GitHub Release **title** is the version only (`v0.0.1-alpha.1`), not
-`Voicy v…`. Copy the matching `CHANGELOG.md` version section into the release
-body (skip the `## vX.Y.Z` heading).
+   ```sh
+   git checkout main
+   git merge --no-ff dev
+   git push origin main
+   ```
 
-For `alpha`, `beta`, and `rc` versions, mark the GitHub Release as pre-release.
-For stable tags, publish a normal GitHub Release.
+4. Tag the merge commit and push the tag:
 
-## Commands
+   ```sh
+   git tag -a v1.2.3 -m "v1.2.3"
+   git push origin v1.2.3
+   ```
 
-Create a pre-release:
+5. Deploy it, and check the running version says what it should.
+
+## Rolling back
+
+Do not retag and do not delete a published release. Roll back by deploying the
+previous version — the images are pinned by digest, so the previous digest is
+the whole rollback — and then publish a new patch that fixes what went wrong.
+
+A version that was published is a fact about what existed. Rewriting it makes
+every other record of it wrong.
+
+## Deploying
+
+The host is WS04. Every stack lives in `/opt/stacks/<stack>` and is driven by the
+`ws04` CLI, which exists on the operator's machine and reaches the host over the
+LAN. Nothing here is built on the host any more: a stack pulls the image the
+release workflow published and runs that. If you find a `build:` section in a
+production manifest, that is a bug, not a shortcut.
+
+### One deploy
 
 ```sh
-git tag -a v0.0.1-alpha.1 -m "v0.0.1-alpha.1"
-git push origin main
-git push origin v0.0.1-alpha.1
-gh release create v0.0.1-alpha.1 \
-  --prerelease \
-  --title "v0.0.1-alpha.1" \
-  --notes-file release-notes.md
+ws04 deploy voicy --dry-run --yes    # prints what it would do, changes nothing
+ws04 deploy voicy --yes
 ```
 
-Do not publish a release before the release notes, tag, and verification status
-all match.
+`deploy` snapshots the stack's compose, env and image ids into
+`/opt/stacks/.ws04/deploy-snapshots/voicy/<timestamp>`, pulls, brings the stack
+up, waits up to ninety seconds for the container to report healthy, and **rolls
+back on its own** if it does not. The snapshot is kept either way.
 
-## Production Deployment
+### Pointing the stack at a version
 
-Production runs the `voicy` stack from `/opt/stacks/voicy` and uses the shared
-`core-postgres` role `voicy_core`. Core migration 011 must be applied before a
-Voicy version that enforces `search_path=voicy` starts. The root
-`docker-compose.yml` is local-development configuration and must not be used as
-a production deployment source. The WS04 file is `deploy/ws04/compose.yaml`.
-
-After the tag workflow publishes the image, resolve its digest and put that
-immutable `ghcr.io/freshlabdev/voicy@sha256:...` value in `VOICY_IMAGE`. Never
-deploy a mutable tag.
+The image is chosen by one variable in the stack's env file on the host, not by
+anything in this repository:
 
 ```sh
-WS04_HOST=ssh.amdumo.fun ws04 deploy voicy --yes --health-timeout 120
-WS04_HOST=ssh.amdumo.fun ws04 stack status voicy
-WS04_HOST=ssh.amdumo.fun ws04 audit --stack voicy --since 1h
+VOICY_IMAGE=ghcr.io/freshlabdev/voicy@sha256:<digest>
 ```
 
-The final check must confirm a healthy container with no restart, a sane
-`/healthz` body (`db`, `telegram_initialized`, `telegram_polling_fresh`, no
-stuck jobs), and no token or key in logs.
+Pin the **digest**, not the tag. A tag can be moved; a digest names one build
+that was tested, so a rollback is one line with nothing to rebuild, and
+`docker inspect` on the running container answers which commit it came from. The
+digest of a release is in its GitHub Release notes, or:
+
+```sh
+gh api /orgs/FreshLabDev/packages/container/voicy/versions \
+  --jq '.[] | select(.metadata.container.tags[]? == "<tag>") | .name'
+```
+
+The variable has no default. An unset one stops the stack with a message naming
+it, rather than quietly starting something else.
+
+### Rolling back
+
+Set `VOICY_IMAGE` to the previous digest and deploy again. That is the whole
+rollback — the images are still on the host, and nothing is rebuilt. Then publish
+a patch that fixes what went wrong; never retag or delete the bad release.
+
+### What this stack needs to exist
+
+| | |
+|:--|:--|
+| Stack | `voicy` — `/opt/stacks/voicy` |
+| Manifest | [`deploy/ws04/compose.yaml`](deploy/ws04/compose.yaml) in this repository |
+| Env file | `.env` on the host, never in git |
+| Networks | `core_net` (core-postgres), `telegram_bot_api_net` (the self-hosted Bot API server) |
+
+Voicy mounts one directory from the Bot API server's media tree — its own, named
+after its full token. The parent holds one such directory per bot, so mounting
+the parent would hand Voicy every other bot's credentials. `BOT_API_HOST_DIR`
+must point at that tree and the directory must already exist owned by uid 101.
+
+### Checking what is running
+
+```sh
+ws04 container list                    # health of everything
+ws04 logs voicy-bot --since 1h
+ws04 container inspect voicy-bot     # includes the image digest
+```
+
+The bot also reports its own version — from the About card in Telegram, and from
+its health endpoint where it has one. Those two and `docker inspect` should
+agree; if they do not, something was deployed by hand.
+
+## Verification
+
+```sh
+go test ./...
+go vet ./...
+docker compose config
+```
+
+The database tests need a real PostgreSQL and a disposable database whose name
+contains `test`; they refuse to run anywhere else:
+
+```sh
+VOICY_TEST_DATABASE_URL=postgres://voicy:voicy@localhost:5432/voicy_test?sslmode=disable \
+  go test -tags=integration ./internal/db/
+```
+
+CI additionally runs `go mod verify`, `go test -race ./...`, `govulncheck`, the
+Docker build, and Compose validation.
+
+For `beta`, `rc`, and stable: a voice note and a video circle in DM, `/v` and
+`/vp` as replies in a group, a cache hit on a repeated `file_id`, and a restart
+mid-job to confirm recovery.

@@ -38,7 +38,9 @@ Keep Voicy minimal, private by default, and production-minded.
 
 ## Versioning
 
-- Develop on `dev`. Publish releases from `main`.
+- Work on `dev`. Pre-releases (`-alpha.N`, `-beta.N`, `-rc.N`) are tagged on
+  `dev`; stable versions are tagged on `main`, on the merge commit from `dev`.
+  The test bot runs `dev`, the production bot runs `main`.
 - Follow `docs/versioning.md`. The first line starts at `v0.0.1-alpha.1`.
 - Use patch versions for fixes, minor versions for MVP-compatible product or
   operations improvements, and reserve `v1.0.0` for a stable production contract.
@@ -88,3 +90,18 @@ validation, and `govulncheck`.
 ## License
 
 Voicy is licensed under Apache-2.0. Preserve `LICENSE` and `NOTICE`.
+
+## Deploying
+
+Do not invent a deploy. [`docs/releases.md`](docs/releases.md) has a **Deploying**
+section describing this stack exactly: which host directory it lives in, which
+env file names the image, which networks it needs, and how to roll back. Read it
+before touching anything on the host.
+
+Two rules that hold everywhere and are easy to get wrong:
+
+- **Nothing is built on the host.** A production stack pulls the image the
+  release workflow published. A `build:` section in a production manifest is a
+  bug.
+- **Pin the digest, not the tag.** A tag moves; a digest names one build that was
+  tested, and a rollback becomes one line with nothing to rebuild.

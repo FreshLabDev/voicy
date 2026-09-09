@@ -178,6 +178,7 @@ type fakeTG struct {
 	richChats      []int64
 	markups        []*tg.InlineKeyboardMarkup
 	groupCommands  []tg.BotCommand
+	privateCmds    []tg.BotCommand
 	downloaded     int
 	gotFile        int
 	calls          []string
@@ -197,6 +198,9 @@ func (f *fakeTG) SetMyCommandsForScope(_ context.Context, commands []tg.BotComma
 	defer f.mu.Unlock()
 	if scope != nil && scope.Type == "all_group_chats" {
 		f.groupCommands = append([]tg.BotCommand{}, commands...)
+	}
+	if scope != nil && scope.Type == "all_private_chats" {
+		f.privateCmds = append([]tg.BotCommand{}, commands...)
 	}
 	return nil
 }
@@ -548,7 +552,7 @@ func TestHandleStartUsesOwnerCallbacks(t *testing.T) {
 	if len(api.sent) != 1 || !contains(api.sent[0], "<b>Voicy</b>") || !contains(api.sent[0], "<blockquote>") {
 		t.Fatalf("start panel = %v", api.sent)
 	}
-	if len(api.markups) != 1 || !markupHas(api.markups[0], "m:7:stats") || !markupHas(api.markups[0], "m:7:close") {
+	if len(api.markups) != 1 || !markupHas(api.markups[0], "m:7:stats") || !markupHas(api.markups[0], "m:7:about") {
 		t.Fatalf("markup = %#v", api.markups)
 	}
 }
@@ -614,10 +618,84 @@ func TestParseMenuCB(t *testing.T) {
 }
 
 func TestHomePanelHasAllContractButtons(t *testing.T) {
-	_, kb := homePanel("en", 7)
-	for _, want := range []string{"m:7:lang", "m:7:stats", "m:7:set", "m:7:help", "m:7:about", "m:7:close"} {
+	_, kb := homePanel("en", 7, scopePrivate)
+	for _, want := range []string{"m:7:lang", "m:7:stats", "m:7:set", "m:7:help", "m:7:about"} {
 		if !markupHas(kb, want) {
 			t.Fatalf("home panel missing %s: %#v", want, kb)
+		}
+	}
+}
+
+// A direct chat is the panel. Deleting the message the person is reading leaves
+// them with their own history and no way back, so Close is a group affordance.
+func TestCloseIsOfferedOnlyInGroups(t *testing.T) {
+	for _, name := range []string{"home", "about", "settings"} {
+		var private, group *tg.InlineKeyboardMarkup
+		switch name {
+		case "home":
+			_, private = homePanel("en", 7, scopePrivate)
+			_, group = homePanel("en", 7, scopeGroup)
+		case "about":
+			_, private = aboutPanel("en", 7, "v1", scopePrivate)
+			_, group = aboutPanel("en", 7, "v1", scopeGroup)
+		case "settings":
+			_, private = settingsPanel("en", 7, settings.Default(), scopePrivate)
+			_, group = settingsPanel("en", 7, settings.Default(), scopeGroup)
+		}
+		if markupHas(private, "m:7:close") {
+			t.Errorf("%s offers Close in a direct chat: %#v", name, private)
+		}
+		if !markupHas(group, "m:7:close") {
+			t.Errorf("%s hides Close in a group: %#v", name, group)
+		}
+	}
+}
+
+// Settings and the interface language are personal and shared with the sibling
+// bots. Offering them from a group would promise an effect on that group.
+func TestGroupHomePanelDropsPersonalTabs(t *testing.T) {
+	text, kb := homePanel("en", 7, scopeGroup)
+	for _, unwanted := range []string{"m:7:set", "m:7:lang", "m:7:stats", "m:7:help"} {
+		if markupHas(kb, unwanted) {
+			t.Errorf("group home offers %s: %#v", unwanted, kb)
+		}
+	}
+	for _, want := range []string{"m:7:about", "m:7:close"} {
+		if !markupHas(kb, want) {
+			t.Errorf("group home missing %s: %#v", want, kb)
+		}
+	}
+	if !strings.Contains(text, "/vp") {
+		t.Errorf("group home must explain /vp: %s", text)
+	}
+}
+
+// Four of the five published direct-chat commands were tabs of this same panel.
+func TestPrivateCommandMenuIsStartOnly(t *testing.T) {
+	api := &fakeTG{}
+	b := New(&fakeStore{}, api, &countingSTT{}, logger())
+	if err := b.RegisterCommands(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.privateCmds) != 1 || api.privateCmds[0].Command != "start" {
+		t.Fatalf("direct-chat menu = %#v", api.privateCmds)
+	}
+}
+
+// The card names the running build and links the repository in the text. A
+// button to the same address would be the same door listed twice.
+func TestAboutCardCarriesVersionAndSource(t *testing.T) {
+	text, kb := aboutPanel("ru", 7, "v0.0.1-beta.5", scopePrivate)
+	for _, want := range []string{"<b>Voicy</b>", "v0.0.1-beta.5", "github.com/FreshLabDev/voicy", "Apache-2.0", "t.me/amtiyo", "Deepgram nova-3"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("about card missing %q: %s", want, text)
+		}
+	}
+	for _, row := range kb.InlineKeyboard {
+		for _, btn := range row {
+			if btn.URL != "" {
+				t.Fatalf("about must not repeat a link as a button: %#v", btn)
+			}
 		}
 	}
 }
@@ -625,17 +703,17 @@ func TestHomePanelHasAllContractButtons(t *testing.T) {
 func TestCallbackDataBudget(t *testing.T) {
 	owner := int64(1) << 62
 	markups := []*tg.InlineKeyboardMarkup{}
-	_, kb := homePanel("ru", owner)
+	_, kb := homePanel("ru", owner, scopePrivate)
 	markups = append(markups, kb)
-	_, kb = helpPanel("ru", owner)
+	_, kb = helpPanel("ru", owner, scopePrivate)
 	markups = append(markups, kb)
-	_, kb = statsPanel("ru", owner, stats.EmptySnapshot(), false)
+	_, kb = statsPanel("ru", owner, stats.EmptySnapshot(), false, scopePrivate)
 	markups = append(markups, kb)
-	_, kb = aboutPanel("ru", owner)
+	_, kb = aboutPanel("ru", owner, "dev", scopeGroup)
 	markups = append(markups, kb)
-	_, kb = languagePanel("ru", owner)
+	_, kb = languagePanel("ru", owner, scopePrivate)
 	markups = append(markups, kb)
-	_, kb = settingsPanel("ru", owner, settings.Default())
+	_, kb = settingsPanel("ru", owner, settings.Default(), scopeGroup)
 	markups = append(markups, kb)
 	for _, m := range markups {
 		for _, row := range m.InlineKeyboard {
