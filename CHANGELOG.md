@@ -90,7 +90,7 @@ server that cannot serve it.
   paths contain the bot token, a token contains a colon, and Compose flattens
   an option-less long mount back into `source:target:rw`, which the daemon
   then splits in the wrong places.
-- Production runs against `telegram-bot-api-next`, the FreshLab-built Bot API
+- Production runs against `telegram-bot-api-next`, the Asterfield-built Bot API
   10.3 server, while the older shared server keeps the bots that have not
   moved. Moving a bot between servers is: stop it, `logOut` on the server it
   leaves, then start it on the new one. A running bot re-registers itself
