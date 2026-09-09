@@ -34,11 +34,17 @@ Close, and its text explains `/v` and `/vp`: settings and the interface language
 are personal and shared with the sibling bots through Core, so offering them from
 somebody else's group would promise a local effect Voicy does not have.
 
-Button styles (Bot API 9.4+) mark one thing per screen: the language tab on the
-direct-chat home, since nothing else there is readable until the language is
-right; the language currently in use, in a grid of sixteen; the open statistics
-tab; and Close, which is destructive. The toggle grid stays unstyled — its state
-is already on the glyphs, and seven coloured switches highlight nothing.
+Every screen is one shape, built by `transcript.Panel`: a bold title, an italic
+one-line hint, and the substance in a quote. Nothing assembles its own HTML, so
+no screen can drift into a shape of its own.
+
+Button styles (Bot API 9.4+) each mean one thing. Primary marks the single thing
+a person most likely came to do, so there is at most one per screen and only one
+in the whole panel: the language tab on the direct-chat home, since nothing else
+there is readable until the language is right. Success reports the state the
+reader is in and never an errand: the language currently in use, the open
+statistics tab, and every switch that is on. Danger destroys, which here is only
+Close. Options carry `◉`/`◎` in both states so a set has one left edge.
 
 ## Media
 

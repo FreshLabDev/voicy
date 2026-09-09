@@ -96,17 +96,46 @@ func TestAboutCardShape(t *testing.T) {
 	}
 }
 
-// Each screen carries the shape its content asks for: a list is not boxed in a
-// quote, and a one-sentence prompt over a keyboard needs no subtitle.
-func TestPanelShapesFollowTheirContent(t *testing.T) {
-	if got := HelpText("en"); strings.Contains(got, "<blockquote>") || strings.Contains(got, "<i>") {
-		t.Errorf("help is a list, not a card: %s", got)
-	}
-	if got := LanguageText("en"); strings.Contains(got, "<blockquote>") || strings.Contains(got, "<i>") {
-		t.Errorf("language prompt = %s", got)
-	}
-	if got := SettingsText("en"); strings.Contains(got, "<i>") {
-		t.Errorf("settings needs no subtitle: %s", got)
+// Every screen is one shape: bold title, italic one-line hint, substance in a
+// quote. Help used to stand outside it — a bulleted list is already a shape, the
+// argument went — and Settings and Language carried a heading with no hint. The
+// shape is not the screen's to choose: a reader who learns it on the front door
+// should meet it again everywhere, and a second shape is how About ended up with
+// the subtitle "Voicy" under the title "About".
+func TestEveryScreenIsOnePanelShape(t *testing.T) {
+	busy := stats.Snapshot{Transcriptions: 3, Voice: 2, VideoNotes: 1, DurationSec: 90, Words: 40, PeakHour: 9}
+	for _, tc := range []struct {
+		name  string
+		text  string
+		quote bool // false only where the buttons are the substance
+	}{
+		{"home", HomeText("en"), true},
+		{"group home", GroupHomeText("en"), true},
+		{"help", HelpText("en"), true},
+		{"language", LanguageText("en"), false},
+		{"settings", SettingsText("en"), true},
+		{"about", AboutText("en", "v0.0.1"), true},
+		{"stats empty", StatsText("en", stats.EmptySnapshot(), false), true},
+		{"stats personal", StatsText("ru", busy, false), true},
+		{"stats global", StatsText("en", busy, true), true},
+	} {
+		lines := strings.SplitN(tc.text, "\n", 3)
+		if !strings.HasPrefix(lines[0], "<b>") {
+			t.Errorf("%s has no bold title: %s", tc.name, tc.text)
+		}
+		if len(lines) < 2 || !strings.HasPrefix(lines[1], "<i>") || !strings.HasSuffix(lines[1], "</i>") {
+			t.Errorf("%s has no italic one-line hint: %s", tc.name, tc.text)
+			continue
+		}
+		if !tc.quote {
+			if len(lines) != 2 {
+				t.Errorf("%s says in the body what its buttons already say: %s", tc.name, tc.text)
+			}
+			continue
+		}
+		if len(lines) != 3 || !strings.HasPrefix(lines[2], "\n<blockquote>") || !strings.HasSuffix(tc.text, "</blockquote>") {
+			t.Errorf("%s does not carry its substance in a quote: %s", tc.name, tc.text)
+		}
 	}
 	if got := GroupHomeText("en"); !strings.Contains(got, "/vp") {
 		t.Errorf("group card must explain the group commands: %s", got)

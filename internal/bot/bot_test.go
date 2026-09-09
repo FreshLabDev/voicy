@@ -626,27 +626,131 @@ func TestHomePanelHasAllContractButtons(t *testing.T) {
 	}
 }
 
+// everyPanel renders every screen in one scope, so a rule that has to hold on
+// all of them can be read off one map instead of six call sites.
+func everyPanel(lang string, owner int64, sc scope) map[string]*tg.InlineKeyboardMarkup {
+	out := map[string]*tg.InlineKeyboardMarkup{}
+	_, out["home"] = homePanel(lang, owner, sc)
+	_, out["help"] = helpPanel(lang, owner, sc)
+	_, out["stats personal"] = statsPanel(lang, owner, stats.EmptySnapshot(), false, sc)
+	_, out["stats global"] = statsPanel(lang, owner, stats.EmptySnapshot(), true, sc)
+	_, out["about"] = aboutPanel(lang, owner, "v1", sc)
+	_, out["language"] = languagePanel(lang, owner, sc)
+	_, out["settings"] = settingsPanel(lang, owner, settings.Default(), sc)
+	return out
+}
+
+func buttonsOf(m *tg.InlineKeyboardMarkup) []tg.InlineKeyboardButton {
+	var out []tg.InlineKeyboardButton
+	if m == nil {
+		return out
+	}
+	for _, row := range m.InlineKeyboard {
+		out = append(out, row...)
+	}
+	return out
+}
+
 // A direct chat is the panel. Deleting the message the person is reading leaves
-// them with their own history and no way back, so Close is a group affordance.
-func TestCloseIsOfferedOnlyInGroups(t *testing.T) {
-	for _, name := range []string{"home", "about", "settings"} {
-		var private, group *tg.InlineKeyboardMarkup
-		switch name {
-		case "home":
-			_, private = homePanel("en", 7, scopePrivate)
-			_, group = homePanel("en", 7, scopeGroup)
-		case "about":
-			_, private = aboutPanel("en", 7, "v1", scopePrivate)
-			_, group = aboutPanel("en", 7, "v1", scopeGroup)
-		case "settings":
-			_, private = settingsPanel("en", 7, settings.Default(), scopePrivate)
-			_, group = settingsPanel("en", 7, settings.Default(), scopeGroup)
+// them with their own history and no way back, so Close is a group affordance —
+// and where it is offered it is painted destructive, because it destroys.
+func TestCloseIsOfferedOnlyInGroupsAndIsDanger(t *testing.T) {
+	// The group home is its own screen: it drops the personal tabs, so it is
+	// not reachable through the panels a group never shows.
+	private, group := everyPanel("en", 7, scopePrivate), everyPanel("en", 7, scopeGroup)
+	for name, m := range private {
+		if markupHas(m, "m:7:close") {
+			t.Errorf("%s offers Close in a direct chat: %#v", name, m)
 		}
-		if markupHas(private, "m:7:close") {
-			t.Errorf("%s offers Close in a direct chat: %#v", name, private)
+	}
+	for name, m := range group {
+		if !markupHas(m, "m:7:close") {
+			t.Errorf("%s hides Close in a group: %#v", name, m)
 		}
-		if !markupHas(group, "m:7:close") {
-			t.Errorf("%s hides Close in a group: %#v", name, group)
+		for _, btn := range buttonsOf(m) {
+			if btn.CallbackData == "m:7:close" && btn.Style != tg.StyleDanger {
+				t.Errorf("%s paints Close %q, want danger", name, btn.Style)
+			}
+			if btn.Style == tg.StyleDanger && btn.CallbackData != "m:7:close" {
+				t.Errorf("%s paints %q destructive and it destroys nothing", name, btn.CallbackData)
+			}
+		}
+	}
+}
+
+// Primary marks the one thing a person most likely came to do, so a screen has
+// at most one and most screens have none. The whole panel is worth checking at
+// once: two Primaries single out neither, and the statistics tabs used to spend
+// the colour on a tab that reports which numbers are showing.
+func TestPrimaryIsOnlyTheHomeLanguageButton(t *testing.T) {
+	for _, sc := range []scope{scopePrivate, scopeGroup} {
+		for name, m := range everyPanel("en", 7, sc) {
+			var primaries []string
+			for _, btn := range buttonsOf(m) {
+				if btn.Style == tg.StylePrimary {
+					primaries = append(primaries, btn.CallbackData)
+				}
+			}
+			want := []string{}
+			if name == "home" && sc == scopePrivate {
+				want = []string{"m:7:lang"}
+			}
+			if len(primaries) != len(want) || (len(want) == 1 && primaries[0] != want[0]) {
+				t.Errorf("%s (scope %d) has Primary on %v, want %v", name, sc, primaries, want)
+			}
+		}
+	}
+}
+
+// Success reports the state the reader is in, so it lands on the current
+// language, the open statistics tab and every switch that is on — and never on
+// a button that only does something.
+func TestSuccessMarksStateAndNothingElse(t *testing.T) {
+	_, kb := statsPanel("en", 7, stats.EmptySnapshot(), true, scopePrivate)
+	for _, btn := range buttonsOf(kb) {
+		want := ""
+		if btn.CallbackData == "m:7:statsg" {
+			want = tg.StyleSuccess
+		}
+		if btn.Style != want {
+			t.Errorf("global tab open: %s is %q, want %q", btn.CallbackData, btn.Style, want)
+		}
+		// Both tabs are one set, so the closed one shows it is closed.
+		if strings.HasPrefix(btn.CallbackData, "m:7:stats") && !strings.HasPrefix(btn.Text, toggleOn) && !strings.HasPrefix(btn.Text, toggleOff) {
+			t.Errorf("tab %s carries no state glyph: %q", btn.CallbackData, btn.Text)
+		}
+	}
+
+	_, kb = languagePanel("ru", 7, scopePrivate)
+	for _, btn := range buttonsOf(kb) {
+		want := ""
+		if btn.CallbackData == "m:7:lang:ru" {
+			want = tg.StyleSuccess
+		}
+		if btn.Style != want {
+			t.Errorf("Russian chosen: %s is %q, want %q", btn.CallbackData, btn.Style, want)
+		}
+	}
+
+	on, err := settings.Default().Apply("diarize", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, kb = settingsPanel("en", 7, on, scopePrivate)
+	for _, btn := range buttonsOf(kb) {
+		key, _, isToggle := strings.Cut(strings.TrimPrefix(btn.CallbackData, "m:7:set:"), ":")
+		if !isToggle || !strings.HasPrefix(btn.CallbackData, "m:7:set:") {
+			continue
+		}
+		want := ""
+		if on.IsOn(key) {
+			want = tg.StyleSuccess
+		}
+		if btn.Style != want {
+			t.Errorf("%s is %q, want %q", key, btn.Style, want)
+		}
+		if !strings.HasPrefix(btn.Text, toggleMark(on.IsOn(key))) {
+			t.Errorf("%s carries the wrong glyph: %q", key, btn.Text)
 		}
 	}
 }

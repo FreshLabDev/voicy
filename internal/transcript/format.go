@@ -156,64 +156,65 @@ func Quote(inner string) string {
 	return "<blockquote>" + inner + "</blockquote>"
 }
 
-func Header(title, hint string) string {
+// Panel is the only shape a screen has: a bold title, an italic one-line hint
+// under it, then the substance in a quote. Every screen is built here and none
+// assembles its own HTML, so a screen cannot drift into a shape of its own —
+// which is what "Help is a list, a list is already a shape" turned into.
+//
+// note is the italic qualifier that sits on the title line. Only About has one,
+// the version it is running, and it is what stopped that card from having to
+// invent the subtitle "Voicy" under the title "About".
+//
+// body may be empty: on the language screen the substance is the sixteen
+// buttons, and a list in the message repeating them is exactly what the family
+// rules forbid.
+func Panel(title, note, hint, body string) string {
 	s := "<b>" + title + "</b>"
+	if note != "" {
+		s += " · <i>" + note + "</i>"
+	}
 	if hint != "" {
 		s += "\n<i>" + hint + "</i>"
 	}
-	return s
-}
-
-// Panel is the title-card shape: a name, what it is, then the content. It fits
-// a screen that has to introduce itself — the front door and the two statistics
-// tabs — and nothing else. Forcing it on every screen is what made "About" carry
-// the subtitle "Voicy" under the title "About".
-func Panel(title, hint, body string) string {
-	s := Header(title, hint)
 	if body != "" {
 		s += "\n\n" + body
 	}
 	return s
 }
 
-// section is the shape for a screen whose keyboard is the point: a heading, then
-// only what the buttons below cannot say themselves.
-func section(title, body string) string {
-	return "<b>" + title + "</b>\n\n" + body
-}
-
 // HomeText introduces the bot to somebody in a direct chat, so it is a card:
 // the name, what it does, and how to start.
 func HomeText(lang string) string {
-	return Panel(i18n.T(lang, "home.title"), i18n.T(lang, "home.hint"), Quote(i18n.T(lang, "home.body")))
+	return Panel(i18n.T(lang, "home.title"), "", i18n.T(lang, "home.hint"), Quote(i18n.T(lang, "home.body")))
 }
 
 // GroupHomeText is the same door seen from a group, where the only thing Voicy
 // does is answer a reply. Settings and language are personal and belong to the
 // direct chat, so the group card does not mention them.
 func GroupHomeText(lang string) string {
-	return Panel(i18n.T(lang, "home.title"), i18n.T(lang, "home.hint"), Quote(i18n.T(lang, "home.group")))
+	return Panel(i18n.T(lang, "home.title"), "", i18n.T(lang, "home.hint"), Quote(i18n.T(lang, "home.group")))
 }
 
-// HelpText is a list of instructions. A bulleted list is already a shape, so it
-// is not wrapped in a quote as well, and a subtitle under "Help" would only say
-// "Help" a second way.
+// HelpText is the list of ways to ask for a transcript. The list used to stand
+// bare because it is already a shape of its own; it is quoted like every other
+// screen's substance now, so Help is not the one panel built differently.
 func HelpText(lang string) string {
-	return section(i18n.T(lang, "help.title"), i18n.T(lang, "help.body"))
+	return Panel(i18n.T(lang, "help.title"), "", i18n.T(lang, "help.hint"), Quote(i18n.T(lang, "help.body")))
 }
 
 // LanguageText sits over sixteen language buttons that already show which one is
 // current. All it has to add is the fact the keyboard cannot show: the choice
-// travels to the other bots in the family.
+// travels to the other bots in the family. That is the hint, and there is no
+// body — the buttons are the substance.
 func LanguageText(lang string) string {
-	return section(i18n.T(lang, "lang.title"), i18n.T(lang, "lang.body"))
+	return Panel(i18n.T(lang, "lang.title"), "", i18n.T(lang, "lang.hint"), "")
 }
 
-// SettingsText sits over the toggle grid and says the one thing a toggle cannot:
-// when flipping it takes effect. The quote keeps that note from reading as a
-// switch label.
+// SettingsText sits over the toggle grid. The hint says who the switches belong
+// to, and the quote says the one thing a toggle cannot: when flipping it takes
+// effect.
 func SettingsText(lang string) string {
-	return section(i18n.T(lang, "settings.title"), Quote(i18n.T(lang, "settings.body")))
+	return Panel(i18n.T(lang, "settings.title"), "", i18n.T(lang, "settings.hint"), Quote(i18n.T(lang, "settings.body")))
 }
 
 // Facts the About card states. They are the same in every language, so they are
@@ -233,14 +234,16 @@ const (
 // might need as "label · value" rows. The repository is a link inside the text
 // rather than a button, because a second way to open one address is not a second
 // action. version is whatever /healthz reports, so a bug report can name a build.
+//
+// It is the same Panel as every other screen — the version is the title-line
+// note, and the tagline is the hint.
 func AboutText(lang, version string) string {
-	head := "<b>" + productName + "</b> · <i>" + html.EscapeString(version) + "</i>\n" + i18n.T(lang, "about.tagline")
 	rows := []string{
 		i18n.T(lang, "about.recognition") + " · " + recognitionName,
 		i18n.T(lang, "about.source") + " · " + link(repoURL, repoName) + " · " + licenseName,
 		i18n.T(lang, "about.admin") + " · " + link(adminURL, adminName),
 	}
-	return head + "\n\n" + Quote(strings.Join(rows, "\n"))
+	return Panel(productName, html.EscapeString(version), i18n.T(lang, "about.tagline"), Quote(strings.Join(rows, "\n")))
 }
 
 func link(url, label string) string {
@@ -254,7 +257,7 @@ func StatsText(lang string, s stats.Snapshot, global bool) string {
 	}
 	title, hint := i18n.T(lang, titleKey), i18n.T(lang, hintKey)
 	if s.Transcriptions == 0 {
-		return Panel(title, hint, i18n.T(lang, "stats.empty"))
+		return Panel(title, "", hint, Quote(i18n.T(lang, "stats.empty")))
 	}
 	// Thin spaces would be prettier, but a plain separator survives every client.
 	sep := ","
@@ -277,7 +280,7 @@ func StatsText(lang string, s stats.Snapshot, global bool) string {
 	} else if s.LastLanguage != "" {
 		lines = append(lines, i18n.T(lang, "stats.last_language")+": "+html.EscapeString(s.LastLanguage))
 	}
-	return Panel(title, hint, Quote(strings.Join(lines, "\n")))
+	return Panel(title, "", hint, Quote(strings.Join(lines, "\n")))
 }
 
 func EmptySpeechText(lang string) string   { return i18n.T(lang, "msg.empty_speech") }

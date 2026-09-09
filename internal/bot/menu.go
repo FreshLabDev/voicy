@@ -88,16 +88,15 @@ func helpPanel(lang string, owner int64, sc scope) (string, *tg.InlineKeyboardMa
 }
 
 func statsPanel(lang string, owner int64, snap stats.Snapshot, global bool, sc scope) (string, *tg.InlineKeyboardMarkup) {
-	personal := tg.InlineKeyboardButton{Text: transcript.TabPersonal(lang), CallbackData: cb(owner, "statsp")}
-	worldwide := tg.InlineKeyboardButton{Text: transcript.TabGlobal(lang), CallbackData: cb(owner, "statsg")}
-	// The open tab is the one the numbers below belong to, so it carries both
-	// marks a client can show: the toggle glyph and the button style.
+	// The two tabs are one set, so both carry a glyph and the pair has one left
+	// edge; the open one is the state the reader is in, not an errand they came
+	// to run, so it is Success and this screen leads nowhere in Primary.
+	personal := tg.InlineKeyboardButton{Text: toggleMark(!global) + transcript.TabPersonal(lang), CallbackData: cb(owner, "statsp")}
+	worldwide := tg.InlineKeyboardButton{Text: toggleMark(global) + transcript.TabGlobal(lang), CallbackData: cb(owner, "statsg")}
 	if global {
-		worldwide.Text = toggleOn + worldwide.Text
-		worldwide.Style = tg.StylePrimary
+		worldwide.Style = tg.StyleSuccess
 	} else {
-		personal.Text = toggleOn + personal.Text
-		personal.Style = tg.StylePrimary
+		personal.Style = tg.StyleSuccess
 	}
 	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{personal, worldwide}}}
 	return transcript.StatsText(lang, snap, global), withNav(kb, lang, owner, sc)
@@ -136,9 +135,17 @@ func languageButton(opt i18n.LangOption, lang string, owner int64) tg.InlineKeyb
 	return btn
 }
 
-// settingsPanel leaves every toggle unstyled on purpose. Seven switches in the
-// theme colour would be seven things shouting, and the state each one is in is
-// already on its glyph.
+// settingsPanel paints every switch that is on.
+//
+// These seven used to be the one set of options in the family that showed its
+// state only on the glyph, on the argument that seven buttons in the theme
+// colour would be seven things shouting. The family rule decides it the other
+// way: Success is what "this is the state you are in" looks like, and an
+// enabled toggle is one of the three things it names. A rule that means one
+// thing for a row of mutually exclusive options and another for a grid of
+// independent switches is not a rule, and a reader who learns the colour on the
+// language screen would have to unlearn it here. Loudness is the price of one
+// colour meaning one thing.
 func settingsPanel(lang string, owner int64, s settings.Settings, sc scope) (string, *tg.InlineKeyboardMarkup) {
 	var rows [][]tg.InlineKeyboardButton
 	keys := settings.Keys()
@@ -149,10 +156,14 @@ func settingsPanel(lang string, owner int64, s settings.Settings, sc scope) (str
 			if s.IsOn(key) {
 				next = "0"
 			}
-			row = append(row, tg.InlineKeyboardButton{
+			btn := tg.InlineKeyboardButton{
 				Text:         toggleMark(s.IsOn(key)) + transcript.SettingLabel(lang, key),
 				CallbackData: cb(owner, "set:"+key+":"+next),
-			})
+			}
+			if s.IsOn(key) {
+				btn.Style = tg.StyleSuccess
+			}
+			row = append(row, btn)
 		}
 		rows = append(rows, row)
 	}
