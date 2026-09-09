@@ -164,6 +164,10 @@ func Header(title, hint string) string {
 	return s
 }
 
+// Panel is the title-card shape: a name, what it is, then the content. It fits
+// a screen that has to introduce itself — the front door and the two statistics
+// tabs — and nothing else. Forcing it on every screen is what made "About" carry
+// the subtitle "Voicy" under the title "About".
 func Panel(title, hint, body string) string {
 	s := Header(title, hint)
 	if body != "" {
@@ -172,17 +176,76 @@ func Panel(title, hint, body string) string {
 	return s
 }
 
-// panelOf renders one localized panel from its three translation keys.
-func panelOf(lang, prefix string) string {
-	return Panel(i18n.T(lang, prefix+".title"), i18n.T(lang, prefix+".hint"), Quote(i18n.T(lang, prefix+".body")))
+// section is the shape for a screen whose keyboard is the point: a heading, then
+// only what the buttons below cannot say themselves.
+func section(title, body string) string {
+	return "<b>" + title + "</b>\n\n" + body
 }
 
-func HomeText(lang string) string     { return panelOf(lang, "home") }
-func HelpText(lang string) string     { return panelOf(lang, "help") }
-func AboutText(lang string) string    { return panelOf(lang, "about") }
-func LanguageText(lang string) string { return panelOf(lang, "lang") }
-func SettingsText(lang string) string { return panelOf(lang, "settings") }
-func StartText(lang string) string    { return HomeText(lang) }
+// HomeText introduces the bot to somebody in a direct chat, so it is a card:
+// the name, what it does, and how to start.
+func HomeText(lang string) string {
+	return Panel(i18n.T(lang, "home.title"), i18n.T(lang, "home.hint"), Quote(i18n.T(lang, "home.body")))
+}
+
+// GroupHomeText is the same door seen from a group, where the only thing Voicy
+// does is answer a reply. Settings and language are personal and belong to the
+// direct chat, so the group card does not mention them.
+func GroupHomeText(lang string) string {
+	return Panel(i18n.T(lang, "home.title"), i18n.T(lang, "home.hint"), Quote(i18n.T(lang, "home.group")))
+}
+
+// HelpText is a list of instructions. A bulleted list is already a shape, so it
+// is not wrapped in a quote as well, and a subtitle under "Help" would only say
+// "Help" a second way.
+func HelpText(lang string) string {
+	return section(i18n.T(lang, "help.title"), i18n.T(lang, "help.body"))
+}
+
+// LanguageText sits over sixteen language buttons that already show which one is
+// current. All it has to add is the fact the keyboard cannot show: the choice
+// travels to the other bots in the family.
+func LanguageText(lang string) string {
+	return section(i18n.T(lang, "lang.title"), i18n.T(lang, "lang.body"))
+}
+
+// SettingsText sits over the toggle grid and says the one thing a toggle cannot:
+// when flipping it takes effect. The quote keeps that note from reading as a
+// switch label.
+func SettingsText(lang string) string {
+	return section(i18n.T(lang, "settings.title"), Quote(i18n.T(lang, "settings.body")))
+}
+
+// Facts the About card states. They are the same in every language, so they are
+// not translation keys: only the labels in front of them are.
+const (
+	productName     = "Voicy"
+	recognitionName = "Deepgram nova-3"
+	repoURL         = "https://github.com/FreshLabDev/voicy"
+	repoName        = "FreshLabDev/voicy"
+	licenseName     = "Apache-2.0"
+	adminURL        = "https://t.me/amtiyo"
+	adminName       = "@amtiyo"
+)
+
+// AboutText is the family-standard credits card: the product and the version it
+// is actually running, one line of what that product is, then the facts someone
+// might need as "label · value" rows. The repository is a link inside the text
+// rather than a button, because a second way to open one address is not a second
+// action. version is whatever /healthz reports, so a bug report can name a build.
+func AboutText(lang, version string) string {
+	head := "<b>" + productName + "</b> · <i>" + html.EscapeString(version) + "</i>\n" + i18n.T(lang, "about.tagline")
+	rows := []string{
+		i18n.T(lang, "about.recognition") + " · " + recognitionName,
+		i18n.T(lang, "about.source") + " · " + link(repoURL, repoName) + " · " + licenseName,
+		i18n.T(lang, "about.admin") + " · " + link(adminURL, adminName),
+	}
+	return head + "\n\n" + Quote(strings.Join(rows, "\n"))
+}
+
+func link(url, label string) string {
+	return "<a href=\"" + url + "\">" + html.EscapeString(label) + "</a>"
+}
 
 func StatsText(lang string, s stats.Snapshot, global bool) string {
 	titleKey, hintKey := "stats.title.personal", "stats.hint.personal"

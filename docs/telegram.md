@@ -2,19 +2,43 @@
 
 ## Commands
 
-| Command | Surface | Behavior |
-|:--|:--|:--|
-| `/start` | DM | Owner-scoped family panel |
-| `/start` | group | Ephemeral panel |
-| `/v` | reply | Public transcript of any audio or video, in the same topic |
-| `/vp` | ephemeral reply in group | Requester-only transcript |
-| `/language [ru\|en]` | DM | Open or change shared interface language |
-| `/stats` | DM | Personal stats with a global tab |
-| `/help`, `/about` | DM | Help and project details |
+| Command | Surface | In the menu | Behavior |
+|:--|:--|:--|:--|
+| `/start` | DM | yes | Owner-scoped family panel |
+| `/start` | group | yes, ephemeral | Ephemeral group panel |
+| `/v` | reply | yes | Public transcript of any audio or video, in the same topic |
+| `/vp` | ephemeral reply in group | yes, ephemeral | Requester-only transcript |
+| `/language [ru\|en]` | DM | no | Opens the language tab, or sets the language directly |
+| `/stats` | DM | no | Opens the statistics tab |
+| `/help` | DM | no | Opens the help tab |
+| `/about` | DM | no | Opens the about card |
+
+Everything that shows or configures lives behind `/start`. A separate command is
+published only when it acts on a message somebody points at, which is why `/v`
+and `/vp` are in the group menu and nothing else is in the direct-chat one:
+statistics, language, help and about are tabs of the panel, and publishing a
+command that only opens a tab lists the same door twice. The four still answer
+for anyone who types them from memory.
 
 Bare group media and non-ephemeral group `/vp` stay silent. Unknown group
 commands stay silent. Menu callbacks include the owner ID and foreign taps only
 receive a short callback toast.
+
+## Panels
+
+The panel is two screens. In a direct chat it carries every tab — language,
+statistics, settings, help, about — and offers no Close, because there the whole
+conversation is the panel and deleting the message the reader is looking at
+leaves them with their own history. In a group it carries the about card and
+Close, and its text explains `/v` and `/vp`: settings and the interface language
+are personal and shared with the sibling bots through Core, so offering them from
+somebody else's group would promise a local effect Voicy does not have.
+
+Button styles (Bot API 9.4+) mark one thing per screen: the language tab on the
+direct-chat home, since nothing else there is readable until the language is
+right; the language currently in use, in a grid of sixteen; the open statistics
+tab; and Close, which is destructive. The toggle grid stays unstyled — its state
+is already on the glyphs, and seven coloured switches highlight nothing.
 
 ## Media
 

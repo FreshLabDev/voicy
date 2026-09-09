@@ -100,6 +100,9 @@ type Bot struct {
 	extractor    *media.Extractor
 	tmpDir       string
 	extractAbove int64
+	// version is the build the About card names, the same string /healthz
+	// reports, so a screenshot of the card identifies the running binary.
+	version string
 	// pulseEvery is how often the typing indicator is refreshed. It is a field
 	// so tests can observe several ticks without sleeping for seconds.
 	pulseEvery time.Duration
@@ -117,6 +120,15 @@ func New(store Store, tg Telegram, stt STT, log *slog.Logger) *Bot {
 		stats:        newStatsCache(defaultStatsTTL),
 		pulseEvery:   chatActionInterval,
 		extractAbove: defaultExtractAbove,
+		version:      "dev",
+	}
+}
+
+// SetVersion names the build in the About card. It defaults to "dev", which is
+// what an unstamped local binary honestly is.
+func (b *Bot) SetVersion(v string) {
+	if v != "" {
+		b.version = v
 	}
 }
 
@@ -167,6 +179,13 @@ func (b *Bot) LastPoll() time.Time {
 // RegisterCommands publishes the command list once per language Voicy speaks,
 // plus a language-less default. Telegram picks the list matching the client's
 // language, so an English menu no longer greets a Russian or Ukrainian user.
+//
+// The direct-chat menu is one entry. Statistics, language, help and about are
+// tabs of the /start panel, and a command that only opens a tab already reachable
+// by a button is the same door listed twice. /v and /vp stay in the group menu
+// because they act on a message somebody points at, which no panel can do.
+// The four commands still answer for anyone who types them from memory; they are
+// simply not advertised.
 func (b *Bot) RegisterCommands(ctx context.Context) error {
 	for _, lang := range append([]string{""}, i18n.Codes()...) {
 		text := lang
@@ -175,10 +194,6 @@ func (b *Bot) RegisterCommands(ctx context.Context) error {
 		}
 		private := []tg.BotCommand{
 			{Command: "start", Description: i18n.T(text, "cmd.start")},
-			{Command: "stats", Description: i18n.T(text, "cmd.stats")},
-			{Command: "language", Description: i18n.T(text, "cmd.language")},
-			{Command: "help", Description: i18n.T(text, "cmd.help")},
-			{Command: "about", Description: i18n.T(text, "cmd.about")},
 		}
 		if err := b.tg.SetMyCommandsForScope(ctx, private,
 			&tg.BotCommandScope{Type: "all_private_chats", LanguageCode: lang}); err != nil {
@@ -467,11 +482,11 @@ func (b *Bot) Handle(ctx context.Context, upd tg.Update) error {
 	case decide.Start:
 		return b.handleStart(ctx, act, lang)
 	case decide.Help:
-		text, markup := helpPanel(lang, act.UserID)
+		text, markup := helpPanel(lang, act.UserID, scopeOf(act.Chat))
 		_, err := b.tg.SendMessage(ctx, act.ChatID, text, markup)
 		return err
 	case decide.About:
-		text, markup := aboutPanel(lang, act.UserID)
+		text, markup := aboutPanel(lang, act.UserID, b.version, scopeOf(act.Chat))
 		_, err := b.tg.SendMessage(ctx, act.ChatID, text, markup)
 		return err
 	case decide.Stats:
@@ -522,7 +537,7 @@ func (b *Bot) handleLanguage(ctx context.Context, act decide.Action, lang string
 			lang = code
 		}
 	}
-	text, markup := languagePanel(lang, act.UserID)
+	text, markup := languagePanel(lang, act.UserID, scopeOf(act.Chat))
 	_, err := b.tg.SendMessage(ctx, act.ChatID, text, markup)
 	return err
 }
@@ -539,7 +554,7 @@ func normalizeLangChoice(s string) string {
 }
 
 func (b *Bot) handleStart(ctx context.Context, act decide.Action, lang string) error {
-	text, markup := homePanel(lang, act.UserID)
+	text, markup := homePanel(lang, act.UserID, scopeOf(act.Chat))
 	if act.Ephemeral {
 		_, err := b.tg.SendEphemeralMessage(ctx, act.ChatID, act.UserID, act.EphemeralMessageID, text, markup)
 		return err
@@ -553,7 +568,7 @@ func (b *Bot) handleStats(ctx context.Context, act decide.Action, lang string, g
 	if err != nil {
 		return err
 	}
-	text, markup := statsPanel(lang, act.UserID, snap, global)
+	text, markup := statsPanel(lang, act.UserID, snap, global, scopeOf(act.Chat))
 	_, err = b.tg.SendMessage(ctx, act.ChatID, text, markup)
 	return err
 }
@@ -632,12 +647,13 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 	if act.UserID != owner {
 		return nil
 	}
+	sc := scopeOf(act.Chat)
 	switch action {
 	case "home":
-		text, markup := homePanel(lang, owner)
+		text, markup := homePanel(lang, owner, sc)
 		return b.editPanel(ctx, act, text, markup)
 	case "help":
-		text, markup := helpPanel(lang, owner)
+		text, markup := helpPanel(lang, owner, sc)
 		return b.editPanel(ctx, act, text, markup)
 	case "stats", "statsp", "statsg":
 		global := action == "statsg"
@@ -645,20 +661,20 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 		if err != nil {
 			return err
 		}
-		text, markup := statsPanel(lang, owner, snap, global)
+		text, markup := statsPanel(lang, owner, snap, global, sc)
 		return b.editPanel(ctx, act, text, markup)
 	case "about":
-		text, markup := aboutPanel(lang, owner)
+		text, markup := aboutPanel(lang, owner, b.version, sc)
 		return b.editPanel(ctx, act, text, markup)
 	case "lang":
-		text, markup := languagePanel(lang, owner)
+		text, markup := languagePanel(lang, owner, sc)
 		return b.editPanel(ctx, act, text, markup)
 	case "set":
 		s, err := b.store.UserSettings(ctx, owner)
 		if err != nil {
 			return err
 		}
-		text, markup := settingsPanel(lang, owner, s)
+		text, markup := settingsPanel(lang, owner, s, sc)
 		return b.editPanel(ctx, act, text, markup)
 	case "close":
 		return b.deletePanel(ctx, act)
@@ -671,7 +687,7 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 		if err := b.store.SetLanguage(ctx, owner, code); err != nil {
 			return err
 		}
-		text, markup := languagePanel(code, owner)
+		text, markup := languagePanel(code, owner, sc)
 		return b.editPanel(ctx, act, text, markup)
 	}
 	if raw, ok := strings.CutPrefix(action, "set:"); ok {
@@ -686,7 +702,7 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 		if err != nil {
 			return err
 		}
-		text, markup := settingsPanel(lang, owner, s)
+		text, markup := settingsPanel(lang, owner, s, sc)
 		return b.editPanel(ctx, act, text, markup)
 	}
 	return nil

@@ -96,6 +96,7 @@ func run(log *slog.Logger) error {
 	stt := deepgram.New(cfg.DeepgramAPIKey)
 	store.SetStatsTimezone(cfg.StatsTimezone)
 	b := bot.New(store, client, stt, log)
+	b.SetVersion(version)
 	b.SetMediaLimits(cfg.MaxMediaBytes, cfg.MaxMediaDuration)
 	b.SetWorkers(cfg.MaxConcurrentJobs)
 	b.SetStatsTTL(cfg.StatsCacheTTL)

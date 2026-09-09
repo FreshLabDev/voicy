@@ -13,6 +13,43 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ### Changed
 
+- **The direct-chat command menu is one entry: `/start`.** `/stats`,
+  `/language`, `/help` and `/about` were published as commands while already
+  being buttons on the `/start` panel, so every one of them listed the same door
+  twice. Everything that shows or configures now lives behind `/start`; a
+  command is published only when it acts on a message somebody points at, which
+  is what `/v` and `/vp` do and why the group menu is unchanged. All four still
+  answer for anyone who types them from memory — they are simply no longer
+  advertised.
+- **The panel is two screens instead of one.** In a direct chat it keeps every
+  tab and no longer offers `Close`: there the whole conversation is the panel,
+  and closing it deleted the message the reader was looking at. In a group it
+  offers `Close`, because there the panel is Voicy's message sitting in somebody
+  else's feed, and it now shows only the about card and a line explaining `/v`
+  and `/vp`. Settings and the interface language are personal and shared with the
+  sibling bots through Core, so a group visitor is no longer offered switches
+  that do not mean in a group what they appear to mean.
+- **Each panel now carries the shape its content asks for.** One "title,
+  subtitle, quoted body" frame was stretched over five screens of different
+  kinds, and because the frame required a subtitle, subtitles were invented for
+  screens that had nothing to put there — "About" was captioned "Voicy". Help is
+  a list and is no longer boxed in a quote; the language screen is a heading and
+  one sentence over the picker; settings is a heading and the note the toggles
+  cannot show; the home card keeps the full frame, which is the one place it was
+  always right.
+- **`About` is the family-standard card.** It leads with the product and the
+  build it is actually running — the same version string `/healthz` reports — one
+  line of what Voicy does, then `label · value` rows: the recognition engine, the
+  repository as a link in the text under Apache-2.0, and the admin to write to.
+  The repository is deliberately a link and not a button: two ways to open one
+  address are not two actions. Localized in all sixteen languages.
+- **Button styles mark one thing per screen** rather than four scattered
+  accents. The language tab is highlighted on the direct-chat home, since nothing
+  else there is readable until the language is right; the language currently in
+  use is marked in the grid of sixteen; the open statistics tab is marked; and
+  `Close` is destructive. The seven-switch settings grid stays unstyled — its
+  state is already on the glyphs, and colouring all of it would highlight none of
+  it.
 - One versioning and release document for the whole family. `docs/versioning.md`
   and `docs/releases.md` are now byte-identical across every Asterfield
   repository apart from two clearly marked sections: this repository's own
@@ -26,6 +63,14 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
   runs `main`. `release.yml` enforces this and refuses a tag on the wrong branch.
   Earlier pre-releases in this repository were tagged on `main` under the
   previous rule; they are left as they are.
+
+### Removed
+
+- Translation keys that nothing renders any more: `cmd.stats`, `cmd.language`,
+  `cmd.help` and `cmd.about` with the commands they described, `about.title`,
+  `about.hint` and `about.body` with the old three-part About panel, and
+  `help.hint`, `lang.hint` and `settings.hint` — the subtitles that only restated
+  their own title or their own body.
 
 ## v0.0.1-beta.4 - 2026-09-08
 

@@ -72,3 +72,43 @@ func TestStatsEmptyHasNoZeros(t *testing.T) {
 		t.Fatalf("empty stats = %s", got)
 	}
 }
+
+// The About card is the one screen that had to invent a subtitle to fit the
+// shared panel shape: it read "About" with "Voicy" underneath. It now leads with
+// the product and the build it is actually running.
+func TestAboutCardShape(t *testing.T) {
+	got := AboutText("en", "v0.0.1-beta.5")
+	if !strings.HasPrefix(got, "<b>Voicy</b> · <i>v0.0.1-beta.5</i>\n") {
+		t.Fatalf("about head = %s", got)
+	}
+	for _, want := range []string{
+		`<a href="https://github.com/FreshLabDev/voicy">FreshLabDev/voicy</a>`,
+		`<a href="https://t.me/amtiyo">@amtiyo</a>`,
+		"Apache-2.0",
+		"Deepgram nova-3",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("about card missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "<i>Voicy</i>") {
+		t.Errorf("the subtitle that only repeated the title is back: %s", got)
+	}
+}
+
+// Each screen carries the shape its content asks for: a list is not boxed in a
+// quote, and a one-sentence prompt over a keyboard needs no subtitle.
+func TestPanelShapesFollowTheirContent(t *testing.T) {
+	if got := HelpText("en"); strings.Contains(got, "<blockquote>") || strings.Contains(got, "<i>") {
+		t.Errorf("help is a list, not a card: %s", got)
+	}
+	if got := LanguageText("en"); strings.Contains(got, "<blockquote>") || strings.Contains(got, "<i>") {
+		t.Errorf("language prompt = %s", got)
+	}
+	if got := SettingsText("en"); strings.Contains(got, "<i>") {
+		t.Errorf("settings needs no subtitle: %s", got)
+	}
+	if got := GroupHomeText("en"); !strings.Contains(got, "/vp") {
+		t.Errorf("group card must explain the group commands: %s", got)
+	}
+}
