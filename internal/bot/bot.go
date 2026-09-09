@@ -708,9 +708,31 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 	return nil
 }
 
+// panelIsAddressable reports whether a callback may act on the message it names.
+//
+// Telegram lets a client send any callback data for any message it can see, not
+// only the buttons it was shown. The owner id inside the data stops one person
+// driving another's panel, but not somebody forging their own id against a
+// message that was never a panel -- and in a group Voicy's public messages are
+// transcripts, which somebody asked for and everyone can read.
+//
+// So in a group only an ephemeral message is addressable: it is already visible
+// to one person, and acting on it at that person's request destroys nothing
+// that was not theirs. In a direct chat every message is that person's own, and
+// the panel is edited in place as before.
+func panelIsAddressable(act decide.Action) bool {
+	if act.Ephemeral && act.EphemeralMessageID != 0 {
+		return true
+	}
+	return act.Chat.Type == "private"
+}
+
 func (b *Bot) editPanel(ctx context.Context, act decide.Action, text string, markup *tg.InlineKeyboardMarkup) error {
 	if act.Ephemeral && act.EphemeralMessageID != 0 {
 		return b.tg.EditEphemeralMessageText(ctx, act.ChatID, act.UserID, act.EphemeralMessageID, text, markup)
+	}
+	if !panelIsAddressable(act) {
+		return nil
 	}
 	return b.tg.EditMessageText(ctx, act.ChatID, act.CallbackMessageID, text, markup)
 }
@@ -718,6 +740,9 @@ func (b *Bot) editPanel(ctx context.Context, act decide.Action, text string, mar
 func (b *Bot) deletePanel(ctx context.Context, act decide.Action) error {
 	if act.Ephemeral && act.EphemeralMessageID != 0 {
 		return b.tg.DeleteEphemeralMessage(ctx, act.ChatID, act.UserID, act.EphemeralMessageID)
+	}
+	if !panelIsAddressable(act) {
+		return nil
 	}
 	return b.tg.DeleteMessage(ctx, act.ChatID, act.CallbackMessageID)
 }

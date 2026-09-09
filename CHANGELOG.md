@@ -13,6 +13,15 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ### Changed
 
+- A panel callback only acts on a message it is entitled to act on. Telegram
+  lets a client send any callback data for any message it can see, not only the
+  buttons it was shown; the owner id inside the data stopped one person driving
+  another's panel, but not somebody forging their own id against a public
+  message. In a group Voicy's public messages are transcripts, so `close` could
+  have deleted someone else's, and opening a tab could have overwritten one.
+  Ephemeral messages are unaffected — they are already visible to one person —
+  and a direct chat is that person's own.
+
 - **The direct-chat command menu is one entry: `/start`.** `/stats`,
   `/language`, `/help` and `/about` were published as commands while already
   being buttons on the `/start` panel, so every one of them listed the same door
