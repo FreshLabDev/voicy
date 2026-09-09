@@ -74,6 +74,9 @@ func truncate(t *testing.T, s *Store) {
 	for _, stmt := range []string{
 		`TRUNCATE voicy.jobs, voicy.user_stats, voicy.user_settings, voicy.transcripts`,
 		`TRUNCATE core.person CASCADE`,
+		// The language hub has no foreign key to core.person, so the CASCADE
+		// above leaves a preference behind for the next test to trip over.
+		`TRUNCATE core.user_language`,
 		`UPDATE voicy.runtime_state SET telegram_offset = 0 WHERE singleton`,
 	} {
 		if _, err := s.pool.Exec(ctx, stmt); err != nil {
@@ -360,5 +363,36 @@ func TestCleanupKeepsRecentlyUsedTranscripts(t *testing.T) {
 	}
 	if _, ok, _ := s.GetCached(ctx, "NEW", settings.DefaultVariant); !ok {
 		t.Fatal("a recently used transcript was deleted")
+	}
+}
+
+// The language hub is the one piece of Voicy's state that lives outside its own
+// schema, so the round trip is worth proving against a real server: a manual
+// pick outranks the Telegram hint, and clearing it hands the answer back.
+func TestClearLanguageRestoresTheTelegramHint(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	if err := s.Touch(ctx, tg.User{ID: 11, FirstName: "T", LanguageCode: "de-DE"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if lang, ok, err := s.EffectiveLanguage(ctx, 11); err != nil || !ok || lang != "de" {
+		t.Fatalf("client hint = %q %v %v, want de", lang, ok, err)
+	}
+	if err := s.SetLanguage(ctx, 11, "uk"); err != nil {
+		t.Fatal(err)
+	}
+	if lang, ok, err := s.EffectiveLanguage(ctx, 11); err != nil || !ok || lang != "uk" {
+		t.Fatalf("manual pick = %q %v %v, want uk", lang, ok, err)
+	}
+	if err := s.ClearLanguage(ctx, 11); err != nil {
+		t.Fatal(err)
+	}
+	if lang, ok, err := s.EffectiveLanguage(ctx, 11); err != nil || !ok || lang != "de" {
+		t.Fatalf("after clearing = %q %v %v, want the de hint back", lang, ok, err)
+	}
+	// Clearing a preference nobody set is not an error: the button is drawn
+	// whether or not there is anything to undo.
+	if err := s.ClearLanguage(ctx, 11); err != nil {
+		t.Fatalf("second clear: %v", err)
 	}
 }

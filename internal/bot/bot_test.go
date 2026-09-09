@@ -33,6 +33,7 @@ type fakeStore struct {
 	offset    int64
 	userCfg   map[int64]settings.Settings
 	langs     map[int64]string
+	cleared   []int64
 	toggled   []string
 }
 
@@ -140,6 +141,13 @@ func (f *fakeStore) SetLanguage(_ context.Context, userID int64, lang string) er
 		f.langs = map[int64]string{}
 	}
 	f.langs[userID] = lang
+	return nil
+}
+func (f *fakeStore) ClearLanguage(_ context.Context, userID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.langs, userID)
+	f.cleared = append(f.cleared, userID)
 	return nil
 }
 func (f *fakeStore) EffectiveLanguage(_ context.Context, userID int64) (string, bool, error) {
@@ -872,6 +880,62 @@ func TestLanguageCallbackSetsAndRerenders(t *testing.T) {
 	}
 	if !contains(api.sent[len(api.sent)-1], "Голос в текст") {
 		t.Fatalf("stored language must beat profile hint: %v", api.sent)
+	}
+}
+
+// Picking a language by hand writes 'manual' into the shared hub and manual
+// outranks every automatic source for ever, so the picker has to offer the way
+// back: clear the choice and let the Telegram client's own hint decide again.
+func TestFollowTelegramClearsTheManualChoice(t *testing.T) {
+	st := &fakeStore{}
+	api := &fakeTG{}
+	b := New(st, api, &countingSTT{}, logger())
+	pick := parseUpd(t, `{
+	  "update_id": 40,
+	  "callback_query": {
+	    "id": "cb9",
+	    "from": {"id": 7, "is_bot": false, "first_name": "A", "language_code": "en"},
+	    "message": {"message_id": 99, "chat": {"id": 7, "type": "private"}},
+	    "data": "m:7:lang:ru"
+	  }
+	}`)
+	if err := b.Handle(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+	if !markupHas(api.markups[len(api.markups)-1], "m:7:langauto") {
+		t.Fatalf("the picker must offer the way back: %#v", api.markups[len(api.markups)-1])
+	}
+	follow := parseUpd(t, `{
+	  "update_id": 41,
+	  "callback_query": {
+	    "id": "cb10",
+	    "from": {"id": 7, "is_bot": false, "first_name": "A", "language_code": "en"},
+	    "message": {"message_id": 99, "chat": {"id": 7, "type": "private"}},
+	    "data": "m:7:langauto"
+	  }
+	}`)
+	if err := b.Handle(context.Background(), follow); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.cleared) != 1 || st.cleared[0] != 7 {
+		t.Fatalf("cleared = %v", st.cleared)
+	}
+	if _, ok := st.langs[7]; ok {
+		t.Fatalf("the manual choice survived: %v", st.langs)
+	}
+	// The panel is redrawn in the language the person is about to read, which
+	// is the profile hint again and not the one they had picked.
+	last := api.edits[len(api.edits)-1]
+	if !contains(last, "Language") || contains(last, "Язык") {
+		t.Fatalf("panel must re-render in the Telegram language: %q", last)
+	}
+	for _, btn := range buttonsOf(api.markups[len(api.markups)-1]) {
+		if btn.CallbackData == "m:7:lang:en" && btn.Style != tg.StyleSuccess {
+			t.Errorf("English is current again and must be marked: %#v", btn)
+		}
+		if btn.CallbackData == "m:7:langauto" && btn.Style != "" {
+			t.Errorf("following the client is not the errand of the screen: %#v", btn)
+		}
 	}
 }
 

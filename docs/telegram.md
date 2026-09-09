@@ -46,6 +46,11 @@ reader is in and never an errand: the language currently in use, the open
 statistics tab, and every switch that is on. Danger destroys, which here is only
 Close. Options carry `◉`/`◎` in both states so a set has one left edge.
 
+The language screen ends with **Follow Telegram**. Picking a language by hand
+writes a manual observation to Core and manual outranks every automatic source
+for ever, so without it a wrong tap would be permanent; it calls
+`core.clear_language` and lets the client's own `language_code` decide again.
+
 ## Media
 
 Voice messages, video circles and audio files are transcribed in a direct chat

@@ -316,6 +316,11 @@ func BtnLanguage(lang string) string { return i18n.T(lang, "btn.language") }
 func BtnSettings(lang string) string { return i18n.T(lang, "btn.settings") }
 func BtnAbout(lang string) string    { return i18n.T(lang, "btn.about") }
 
+// BtnFollowTelegram labels the way back out of a hand-picked language: the
+// manual choice outranks every automatic source for ever, so without this
+// button a wrong tap is permanent.
+func BtnFollowTelegram(lang string) string { return i18n.T(lang, "btn.follow_telegram") }
+
 func TabPersonal(lang string) string { return i18n.T(lang, "stats.tab.personal") }
 func TabGlobal(lang string) string   { return i18n.T(lang, "stats.tab.global") }
 

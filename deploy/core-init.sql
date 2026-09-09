@@ -84,6 +84,25 @@ BEGIN
     updated_at = now();
 END $$;
 
+-- Dropping the manual observation has to leave the client hint behind, or
+-- "follow Telegram" would only mean "forget everything": the real hub keeps the
+-- observations side by side and re-resolves, while this stand-in holds one row,
+-- so it rebuilds the client row from the language_code core.touch recorded.
+CREATE OR REPLACE FUNCTION core.clear_language(
+  p_bot text, p_scope text, p_subject bigint
+) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_client text;
+BEGIN
+  DELETE FROM core.user_language WHERE bot = p_bot AND subject_id = p_subject;
+  SELECT lower(split_part(btrim(pe.tg_language_code), '-', 1)) INTO v_client
+  FROM core.person pe
+  WHERE pe.telegram_user_id = p_subject AND btrim(coalesce(pe.tg_language_code, '')) <> '';
+  IF v_client IS NOT NULL THEN
+    INSERT INTO core.user_language (bot, subject_id, language, source)
+    VALUES (p_bot, p_subject, v_client, 'client');
+  END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION core.effective_language(
   p_user bigint, p_chat bigint DEFAULT NULL, p_prefer text DEFAULT 'user'
 ) RETURNS text LANGUAGE sql STABLE AS $$

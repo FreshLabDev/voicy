@@ -125,6 +125,24 @@
   "uk": "Закрити",
   "zh": "关闭"
  },
+ "btn.follow_telegram": {
+  "ar": "مثل Telegram",
+  "be": "Як у Telegram",
+  "ca": "Com a Telegram",
+  "cs": "Jako v Telegramu",
+  "de": "Wie in Telegram",
+  "en": "Follow Telegram",
+  "es": "Como en Telegram",
+  "fr": "Comme dans Telegram",
+  "it": "Come in Telegram",
+  "ja": "Telegram に合わせる",
+  "pl": "Jak w Telegramie",
+  "ru": "Как в Telegram",
+  "sv": "Som i Telegram",
+  "tr": "Telegram’daki gibi",
+  "uk": "Як у Telegram",
+  "zh": "跟随 Telegram"
+ },
  "btn.help": {
   "ar": "المساعدة",
   "be": "Даведка",

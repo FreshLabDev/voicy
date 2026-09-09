@@ -54,6 +54,7 @@ type Store interface {
 	UserSettings(ctx context.Context, userID int64) (settings.Settings, error)
 	SetSetting(ctx context.Context, userID int64, key string, value bool) (settings.Settings, error)
 	SetLanguage(ctx context.Context, userID int64, lang string) error
+	ClearLanguage(ctx context.Context, userID int64) error
 	EffectiveLanguage(ctx context.Context, userID int64) (string, bool, error)
 	UserStats(context.Context, int64) (stats.Snapshot, error)
 	GlobalStats(context.Context) (stats.Snapshot, error)
@@ -668,6 +669,16 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 		return b.editPanel(ctx, act, text, markup)
 	case "lang":
 		text, markup := languagePanel(lang, owner, sc)
+		return b.editPanel(ctx, act, text, markup)
+	case "langauto":
+		if err := b.store.ClearLanguage(ctx, owner); err != nil {
+			return err
+		}
+		// The manual choice is gone, so ask the hub what the language is now
+		// rather than assuming the Telegram hint: another automatic source may
+		// still answer for this person, and the panel has to be drawn in the
+		// language they are actually about to read.
+		text, markup := languagePanel(b.resolveLang(ctx, act), owner, sc)
 		return b.editPanel(ctx, act, text, markup)
 	case "set":
 		s, err := b.store.UserSettings(ctx, owner)

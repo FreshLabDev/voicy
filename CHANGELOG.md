@@ -13,6 +13,15 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+### Added
+
+- **The language screen offers "Follow Telegram".** Picking a language by hand
+  records a manual choice in the shared Core hub, and manual outranks every
+  automatic source for ever — so somebody who tapped the wrong flag once read
+  Voicy in that language until a human edited the database. The button clears
+  that choice and lets the Telegram client's own `language_code` decide again.
+  The database role now also needs `EXECUTE` on `core.clear_language`.
+
 ### Changed
 
 - **Every panel is one shape.** Help, Language, Settings and About each built

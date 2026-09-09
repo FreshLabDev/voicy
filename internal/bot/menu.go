@@ -108,9 +108,16 @@ func aboutPanel(lang string, owner int64, version string, sc scope) (string, *tg
 
 // languagePanel lists every language the fleet shares, two per row. The flag and
 // native name come from i18n so Voicy's picker looks like searchy's and vido's.
+//
+// Under the grid sits the way back out. Picking a language by hand writes a
+// manual observation into the shared core hub, and manual outranks every
+// automatic source for ever: without this button somebody who tapped the wrong
+// flag once would read Voicy in that language until a human touched the
+// database. It is not styled, because following the client is not more likely
+// to be what the reader came for than picking a language is.
 func languagePanel(lang string, owner int64, sc scope) (string, *tg.InlineKeyboardMarkup) {
 	opts := i18n.LANGUAGE_OPTIONS
-	rows := make([][]tg.InlineKeyboardButton, 0, (len(opts)+1)/2)
+	rows := make([][]tg.InlineKeyboardButton, 0, (len(opts)+1)/2+1)
 	for i := 0; i < len(opts); i += 2 {
 		row := []tg.InlineKeyboardButton{languageButton(opts[i], lang, owner)}
 		if i+1 < len(opts) {
@@ -118,6 +125,9 @@ func languagePanel(lang string, owner int64, sc scope) (string, *tg.InlineKeyboa
 		}
 		rows = append(rows, row)
 	}
+	rows = append(rows, []tg.InlineKeyboardButton{
+		{Text: transcript.BtnFollowTelegram(lang), CallbackData: cb(owner, "langauto")},
+	})
 	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 	return transcript.LanguageText(lang), withNav(kb, lang, owner, sc)
 }
