@@ -11,6 +11,15 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 ## Unreleased
 
+Use this section for changes that are merged but not released yet.
+
+## v0.0.1-beta.5 - 2026-09-09
+
+Everything that shows or configures now lives behind /start, the panels stopped
+wearing one shape that fitted none of them, and a callback can no longer act on
+a message it was never shown.
+
+
 ### Changed
 
 - A panel callback only acts on a message it is entitled to act on. Telegram
