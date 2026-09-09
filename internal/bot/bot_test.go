@@ -740,6 +740,10 @@ func TestSuccessMarksStateAndNothingElse(t *testing.T) {
 		}
 	}
 
+	// A toggle reports its state and undoes it with the same tap, so it takes
+	// the glyph and no colour: Success would sit on the control that turns the
+	// thing off. The current-language button above is inert, which is the
+	// difference that earns it the colour.
 	on, err := settings.Default().Apply("diarize", true)
 	if err != nil {
 		t.Fatal(err)
@@ -750,12 +754,8 @@ func TestSuccessMarksStateAndNothingElse(t *testing.T) {
 		if !isToggle || !strings.HasPrefix(btn.CallbackData, "m:7:set:") {
 			continue
 		}
-		want := ""
-		if on.IsOn(key) {
-			want = tg.StyleSuccess
-		}
-		if btn.Style != want {
-			t.Errorf("%s is %q, want %q", key, btn.Style, want)
+		if btn.Style != "" {
+			t.Errorf("toggle %s is coloured %q; a button that acts takes no state colour", key, btn.Style)
 		}
 		if !strings.HasPrefix(btn.Text, toggleMark(on.IsOn(key))) {
 			t.Errorf("%s carries the wrong glyph: %q", key, btn.Text)

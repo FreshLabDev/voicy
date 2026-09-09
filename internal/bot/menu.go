@@ -145,17 +145,16 @@ func languageButton(opt i18n.LangOption, lang string, owner int64) tg.InlineKeyb
 	return btn
 }
 
-// settingsPanel paints every switch that is on.
+// settingsPanel shows every switch on its glyph and none of them in colour.
 //
-// These seven used to be the one set of options in the family that showed its
-// state only on the glyph, on the argument that seven buttons in the theme
-// colour would be seven things shouting. The family rule decides it the other
-// way: Success is what "this is the state you are in" looks like, and an
-// enabled toggle is one of the three things it names. A rule that means one
-// thing for a row of mutually exclusive options and another for a grid of
-// independent switches is not a rule, and a reader who learns the colour on the
-// language screen would have to unlearn it here. Loudness is the price of one
-// colour meaning one thing.
+// The family rule reserves Success for state and forbids it on a button that
+// acts, and a toggle is both at once: it reports that the setting is on, and
+// tapping it turns the setting off. Painting it green puts the colour for
+// "this is how things are" on the control that undoes it — the current-language
+// button is inert by comparison, which is why that one is coloured and these
+// are not. The glyph carries the state here, and seven greens would not have
+// distinguished anything anyway: a mark is a signal when it is on one option
+// out of a set, and wallpaper when it can be on all of them at once.
 func settingsPanel(lang string, owner int64, s settings.Settings, sc scope) (string, *tg.InlineKeyboardMarkup) {
 	var rows [][]tg.InlineKeyboardButton
 	keys := settings.Keys()
@@ -169,9 +168,6 @@ func settingsPanel(lang string, owner int64, s settings.Settings, sc scope) (str
 			btn := tg.InlineKeyboardButton{
 				Text:         toggleMark(s.IsOn(key)) + transcript.SettingLabel(lang, key),
 				CallbackData: cb(owner, "set:"+key+":"+next),
-			}
-			if s.IsOn(key) {
-				btn.Style = tg.StyleSuccess
 			}
 			row = append(row, btn)
 		}
