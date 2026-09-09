@@ -13,6 +13,8 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.0-alpha.1 - 2026-09-09
+
 ### Added
 
 - **The language screen offers "Follow Telegram".** Picking a language by hand
