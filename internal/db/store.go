@@ -184,6 +184,18 @@ func (s *Store) SetLanguage(ctx context.Context, userID int64, lang string) erro
 	return err
 }
 
+// ClearLanguage deletes Voicy's manual observation from the shared core hub, so
+// the automatic sources decide again and the Telegram client's own
+// language_code hint wins. It is the only way back out of a hand-picked
+// language: set_language writes 'manual', and manual outranks everything for
+// ever. The 'user' literal stays inline for the reason SetLanguage's does —
+// core.clear_language takes a core.pref_scope enum in production and pgx would
+// send a bound parameter as text.
+func (s *Store) ClearLanguage(ctx context.Context, userID int64) error {
+	_, err := s.pool.Exec(ctx, `SELECT core.clear_language($1,'user',$2)`, "voicy", userID)
+	return err
+}
+
 // EffectiveLanguage reads the resolved language from the core hub.
 // Missing preference is not an error: ok=false means "use the Telegram hint".
 func (s *Store) EffectiveLanguage(ctx context.Context, userID int64) (string, bool, error) {

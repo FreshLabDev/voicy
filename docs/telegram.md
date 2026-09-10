@@ -34,11 +34,26 @@ Close, and its text explains `/v` and `/vp`: settings and the interface language
 are personal and shared with the sibling bots through Core, so offering them from
 somebody else's group would promise a local effect Voicy does not have.
 
-Button styles (Bot API 9.4+) mark one thing per screen: the language tab on the
-direct-chat home, since nothing else there is readable until the language is
-right; the language currently in use, in a grid of sixteen; the open statistics
-tab; and Close, which is destructive. The toggle grid stays unstyled — its state
-is already on the glyphs, and seven coloured switches highlight nothing.
+Every screen is one shape, built by `transcript.Panel`: a bold title, an italic
+one-line hint, and the substance in a quote. Nothing assembles its own HTML, so
+no screen can drift into a shape of its own.
+
+Button styles (Bot API 9.4+) each mean one thing. Primary marks the single thing
+a person most likely came to do, so there is at most one per screen and only one
+in the whole panel: the language tab on the direct-chat home, since nothing else
+there is readable until the language is right. Success reports the state the
+reader is in and never sits on a button that acts: the language currently in
+use and the open statistics tab, both of which do nothing when tapped again.
+The settings switches are the near miss — a switch does report its state, but
+the same tap turns it off, so it would be the colour for "this is how things
+are" on the control that undoes it. Those keep the glyph and take no colour.
+Danger destroys, which here is only Close. Options carry `◉`/`◎` in both states
+so a set has one left edge.
+
+The language screen ends with **Follow Telegram**. Picking a language by hand
+writes a manual observation to Core and manual outranks every automatic source
+for ever, so without it a wrong tap would be permanent; it calls
+`core.clear_language` and lets the client's own `language_code` decide again.
 
 ## Media
 

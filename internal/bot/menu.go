@@ -88,16 +88,15 @@ func helpPanel(lang string, owner int64, sc scope) (string, *tg.InlineKeyboardMa
 }
 
 func statsPanel(lang string, owner int64, snap stats.Snapshot, global bool, sc scope) (string, *tg.InlineKeyboardMarkup) {
-	personal := tg.InlineKeyboardButton{Text: transcript.TabPersonal(lang), CallbackData: cb(owner, "statsp")}
-	worldwide := tg.InlineKeyboardButton{Text: transcript.TabGlobal(lang), CallbackData: cb(owner, "statsg")}
-	// The open tab is the one the numbers below belong to, so it carries both
-	// marks a client can show: the toggle glyph and the button style.
+	// The two tabs are one set, so both carry a glyph and the pair has one left
+	// edge; the open one is the state the reader is in, not an errand they came
+	// to run, so it is Success and this screen leads nowhere in Primary.
+	personal := tg.InlineKeyboardButton{Text: toggleMark(!global) + transcript.TabPersonal(lang), CallbackData: cb(owner, "statsp")}
+	worldwide := tg.InlineKeyboardButton{Text: toggleMark(global) + transcript.TabGlobal(lang), CallbackData: cb(owner, "statsg")}
 	if global {
-		worldwide.Text = toggleOn + worldwide.Text
-		worldwide.Style = tg.StylePrimary
+		worldwide.Style = tg.StyleSuccess
 	} else {
-		personal.Text = toggleOn + personal.Text
-		personal.Style = tg.StylePrimary
+		personal.Style = tg.StyleSuccess
 	}
 	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: [][]tg.InlineKeyboardButton{{personal, worldwide}}}
 	return transcript.StatsText(lang, snap, global), withNav(kb, lang, owner, sc)
@@ -109,9 +108,16 @@ func aboutPanel(lang string, owner int64, version string, sc scope) (string, *tg
 
 // languagePanel lists every language the fleet shares, two per row. The flag and
 // native name come from i18n so Voicy's picker looks like searchy's and vido's.
+//
+// Under the grid sits the way back out. Picking a language by hand writes a
+// manual observation into the shared core hub, and manual outranks every
+// automatic source for ever: without this button somebody who tapped the wrong
+// flag once would read Voicy in that language until a human touched the
+// database. It is not styled, because following the client is not more likely
+// to be what the reader came for than picking a language is.
 func languagePanel(lang string, owner int64, sc scope) (string, *tg.InlineKeyboardMarkup) {
 	opts := i18n.LANGUAGE_OPTIONS
-	rows := make([][]tg.InlineKeyboardButton, 0, (len(opts)+1)/2)
+	rows := make([][]tg.InlineKeyboardButton, 0, (len(opts)+1)/2+1)
 	for i := 0; i < len(opts); i += 2 {
 		row := []tg.InlineKeyboardButton{languageButton(opts[i], lang, owner)}
 		if i+1 < len(opts) {
@@ -119,6 +125,9 @@ func languagePanel(lang string, owner int64, sc scope) (string, *tg.InlineKeyboa
 		}
 		rows = append(rows, row)
 	}
+	rows = append(rows, []tg.InlineKeyboardButton{
+		{Text: transcript.BtnFollowTelegram(lang), CallbackData: cb(owner, "langauto")},
+	})
 	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 	return transcript.LanguageText(lang), withNav(kb, lang, owner, sc)
 }
@@ -136,9 +145,16 @@ func languageButton(opt i18n.LangOption, lang string, owner int64) tg.InlineKeyb
 	return btn
 }
 
-// settingsPanel leaves every toggle unstyled on purpose. Seven switches in the
-// theme colour would be seven things shouting, and the state each one is in is
-// already on its glyph.
+// settingsPanel shows every switch on its glyph and none of them in colour.
+//
+// The family rule reserves Success for state and forbids it on a button that
+// acts, and a toggle is both at once: it reports that the setting is on, and
+// tapping it turns the setting off. Painting it green puts the colour for
+// "this is how things are" on the control that undoes it — the current-language
+// button is inert by comparison, which is why that one is coloured and these
+// are not. The glyph carries the state here, and seven greens would not have
+// distinguished anything anyway: a mark is a signal when it is on one option
+// out of a set, and wallpaper when it can be on all of them at once.
 func settingsPanel(lang string, owner int64, s settings.Settings, sc scope) (string, *tg.InlineKeyboardMarkup) {
 	var rows [][]tg.InlineKeyboardButton
 	keys := settings.Keys()
@@ -149,10 +165,11 @@ func settingsPanel(lang string, owner int64, s settings.Settings, sc scope) (str
 			if s.IsOn(key) {
 				next = "0"
 			}
-			row = append(row, tg.InlineKeyboardButton{
+			btn := tg.InlineKeyboardButton{
 				Text:         toggleMark(s.IsOn(key)) + transcript.SettingLabel(lang, key),
 				CallbackData: cb(owner, "set:"+key+":"+next),
-			})
+			}
+			row = append(row, btn)
 		}
 		rows = append(rows, row)
 	}

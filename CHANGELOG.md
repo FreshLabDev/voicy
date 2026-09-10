@@ -13,6 +13,50 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v0.0.2 - 2026-09-10
+
+A language picked by hand can be handed back, and every screen is built the same
+way as every other screen in the family.
+
+Four panels used to assemble their own markup, the closed statistics tab carried
+no mark, and the settings switches were painted with the colour that means
+"this is the state you are in" — on the control that turns the state off.
+
+### Changed
+
+- `docs/releases.md` names the real cause of the `403` a digest pull used to
+  answer: the account running the deploy could not read the private package,
+  not anything about the digest. Pulling the tag first was a workaround for
+  that, and is no longer required.
+
+## v0.0.2-alpha.1 - 2026-09-09
+
+### Added
+
+- **The language screen offers "Follow Telegram".** Picking a language by hand
+  records a manual choice in the shared Core hub, and manual outranks every
+  automatic source for ever — so somebody who tapped the wrong flag once read
+  Voicy in that language until a human edited the database. The button clears
+  that choice and lets the Telegram client's own `language_code` decide again.
+  The database role now also needs `EXECUTE` on `core.clear_language`.
+
+### Changed
+
+- **Every panel is one shape.** Help, Language, Settings and About each built
+  their own HTML — Help on the argument that a bulleted list is already a shape,
+  About because the version had to sit next to the name. They all go through the
+  one panel helper now: bold title, italic one-line hint, substance in a quote.
+  The About card still leads with `Voicy · <version>` and the language screen
+  still says nothing its sixteen buttons already say.
+
+- **One colour, one meaning.** The open statistics tab was Primary, the colour
+  that marks the single thing a person came to do; it reports which numbers are
+  showing, so it is Success now, and Primary is left to the one button that
+  leads anywhere — Language on the direct-chat home. Both statistics tabs carry
+  a state glyph, not just the open one, and every switch that is on is Success
+  like the current language is. Seven coloured switches are loud; a colour that
+  means one thing on one screen and another on the next is worse.
+
 ## v0.0.1 - 2026-09-09
 
 Everything that shows or configures now lives behind /start, the panels stopped

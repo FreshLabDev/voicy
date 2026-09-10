@@ -8,8 +8,8 @@ surface. PostgreSQL is its only durable store.
 - Domain tables live in the isolated `voicy` schema.
 - Shared Telegram identity, presence, and language live in `core`.
 - Voicy connects as `voicy_core`, can reference `core.person` and `core.chat`,
-  and can execute only `core.touch`, `core.set_language`, and
-  `core.effective_language`.
+  and can execute only `core.touch`, `core.set_language`,
+  `core.clear_language`, and `core.effective_language`.
 - Media is streamed to a temporary file, never held whole in memory, and
   deleted when the job ends. It is never logged or stored in PostgreSQL.
 - ffmpeg reduces video and oversized media to a mono Opus track before the

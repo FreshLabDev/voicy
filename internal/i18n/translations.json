@@ -125,6 +125,24 @@
   "uk": "Закрити",
   "zh": "关闭"
  },
+ "btn.follow_telegram": {
+  "ar": "مثل Telegram",
+  "be": "Як у Telegram",
+  "ca": "Com a Telegram",
+  "cs": "Jako v Telegramu",
+  "de": "Wie in Telegram",
+  "en": "Follow Telegram",
+  "es": "Como en Telegram",
+  "fr": "Comme dans Telegram",
+  "it": "Come in Telegram",
+  "ja": "Telegram に合わせる",
+  "pl": "Jak w Telegramie",
+  "ru": "Как в Telegram",
+  "sv": "Som i Telegram",
+  "tr": "Telegram’daki gibi",
+  "uk": "Як у Telegram",
+  "zh": "跟随 Telegram"
+ },
  "btn.help": {
   "ar": "المساعدة",
   "be": "Даведка",
@@ -287,6 +305,24 @@
   "uk": "• У приваті: надішли голосове, кружечок або аудіофайл.\n• Більші файли та відео: відповідай на них командою <code>/v</code>.\n• У групі: реплай <code>/v</code> — усім, <code>/vp</code> — лише тобі.\n• Повтор того самого файлу віддається з кешу.",
   "zh": "• 私聊：直接发语音、视频圆圈或音频文件。\n• 较大的文件和视频：回复它们并输入 <code>/v</code>。\n• 群聊：回复 <code>/v</code> 所有人可见，<code>/vp</code> 仅你可见。\n• 相同的文件会直接从缓存返回。"
  },
+ "help.hint": {
+  "ar": "طرق الحصول على تفريغ",
+  "be": "Спосабы атрымаць расшыфроўку",
+  "ca": "Maneres d’obtenir una transcripció",
+  "cs": "Jak získat přepis",
+  "de": "Wege zu einem Transkript",
+  "en": "Ways to get a transcript",
+  "es": "Formas de obtener una transcripción",
+  "fr": "Comment obtenir une transcription",
+  "it": "Come ottenere una trascrizione",
+  "ja": "文字起こしを受け取る方法",
+  "pl": "Sposoby na uzyskanie transkrypcji",
+  "ru": "Способы получить расшифровку",
+  "sv": "Sätt att få en transkribering",
+  "tr": "Deşifre almanın yolları",
+  "uk": "Способи отримати розшифровку",
+  "zh": "获取识别结果的方式"
+ },
  "help.title": {
   "ar": "المساعدة",
   "be": "Даведка",
@@ -377,7 +413,7 @@
   "uk": "Voicy",
   "zh": "Voicy"
  },
- "lang.body": {
+ "lang.hint": {
   "ar": "اختر لغة الواجهة. وهي مشتركة مع بقية البوتات.",
   "be": "Абяры мову інтэрфейсу. Яна агульная з астатнімі ботамі.",
   "ca": "Tria l’idioma de la interfície. Es comparteix amb els altres bots.",
@@ -808,6 +844,24 @@
   "tr": "Deşifre: yeni dosyalar için geçerli.\nÇıktı: hemen geçerli.",
   "uk": "Розшифровка: застосовується до нових файлів.\nВивід: застосовується одразу.",
   "zh": "识别：对新文件生效。\n输出：立即生效。"
+ },
+ "settings.hint": {
+  "ar": "تسري عليك في كل محادثة",
+  "be": "Дзейнічаюць для цябе ў любым чаце",
+  "ca": "S’apliquen a tu a qualsevol xat",
+  "cs": "Platí pro tebe v každém chatu",
+  "de": "Gelten für dich in jedem Chat",
+  "en": "These apply to you in every chat",
+  "es": "Se aplican a ti en cualquier chat",
+  "fr": "Ils s’appliquent à toi dans tous les chats",
+  "it": "Valgono per te in ogni chat",
+  "ja": "すべてのチャットであなたに適用されます",
+  "pl": "Obowiązują dla ciebie w każdym czacie",
+  "ru": "Действуют для тебя в любом чате",
+  "sv": "Gäller dig i alla chattar",
+  "tr": "Her sohbette senin için geçerli",
+  "uk": "Діють для тебе в будь-якому чаті",
+  "zh": "在所有聊天中对你生效"
  },
  "settings.title": {
   "ar": "الإعدادات",
