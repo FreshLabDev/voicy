@@ -29,6 +29,12 @@ WORKDIR /app
 COPY --from=build /out/voicy /app/voicy
 COPY migrations /app/migrations
 
+# docker inspect answers which build is running without starting it.
+ARG VERSION=dev
+ARG COMMIT=none
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.source="https://github.com/FreshLabDev/voicy"
 USER voicy
 
 EXPOSE 8080
