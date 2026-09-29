@@ -13,6 +13,20 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+### Changed
+
+- **A release waits for CI.** `release.yml` runs `ci.yml` on the tagged commit
+  and publishes nothing unless it passed. The checks it used to repeat inline
+  now come from CI itself, so the two cannot drift. When CI cannot run,
+  `release.yml` can be started by hand with the tag and a reason; that run skips
+  CI and prints the reason at the top of the release notes. See
+  `docs/releases.md`.
+- The image carries `org.opencontainers.image.version` and `.revision` labels,
+  so `docker inspect` names the build without starting it.
+- CI also runs weekly, so a new advisory against a dependency or the standard
+  library is noticed while nothing is being pushed.
+- Dependabot opens grouped version updates against `dev`.
+
 ## v0.0.2 - 2026-09-10
 
 A language picked by hand can be handed back, and every screen is built the same
