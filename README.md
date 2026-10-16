@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/FreshLabDev/voicy/releases"><img src="https://img.shields.io/github/v/release/FreshLabDev/voicy?include_prereleases&sort=semver&style=for-the-badge&label=latest&labelColor=0f172a&color=4c8c4a" alt="latest version"></a>
-  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/version-v0.0.2-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="current version"></a>
+  <a href="docs/versioning.md"><img src="https://img.shields.io/badge/version-v0.1.0-4c8c4a?style=for-the-badge&labelColor=0f172a" alt="current version"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/FreshLabDev/voicy?style=for-the-badge&logo=go&logoColor=white&label=go&labelColor=0f172a&color=00ADD8" alt="go version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-334155?style=for-the-badge&labelColor=0f172a" alt="license"></a>
   <a href="https://t.me/voicyin_bot"><img src="https://img.shields.io/badge/telegram-%40voicyin__bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0f172a" alt="telegram bot"></a>
@@ -27,7 +27,7 @@ Voice notes and video circles are fast to send and slow to read later. Pasting
 them into a separate transcriber breaks the chat, and a bot that talks on every
 group voice becomes noise.
 
-Voicy keeps the first alpha deliberately narrow:
+Voicy is deliberately narrow:
 
 | Need | Voicy approach |
 |:--|:--|
@@ -47,12 +47,12 @@ Voicy keeps the first alpha deliberately narrow:
 
 | Channel | Version | Meaning |
 |:--|:--|:--|
-| Latest | `v0.0.1-beta.1` | Beta: 16 interface languages, audio files and video, streamed media |
-| Stable | — | Not yet. This line is pre-release until `v0.0.1` |
+| Stable | `v0.1.0` | A daily audio allowance per person, built with Go 1.26.9 |
+| Next | `Unreleased` | Compatible fixes and improvements land on `dev` |
 
-The bot is live for limited testing as [@voicyin_bot](https://t.me/voicyin_bot).
-Alpha means the Deepgram and Telegram paths work, but the public contract is
-still allowed to change.
+The bot is public as [@voicyin_bot](https://t.me/voicyin_bot). Until `v1.0.0`
+the operator contract (environment, schema, `/v` and `/vp` semantics) may still
+change between minor versions; see [`docs/versioning.md`](docs/versioning.md).
 
 ---
 
@@ -144,7 +144,7 @@ getFile -> bounded download
 | Deepgram `nova-3` prerecorded Listen | Whisper or another STT |
 | DM implicit for speech; `/v` for files and video | Auto-transcribe every group voice |
 | `file_id` cache | Stored audio bytes |
-| `/healthz` | Public metrics surface in this alpha |
+| `/healthz` and `/metrics` inside the Docker network | Any port published to the internet |
 
 ---
 

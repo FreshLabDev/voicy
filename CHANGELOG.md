@@ -13,6 +13,18 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.0 - 2026-10-16
+
+Voicy goes public with a ceiling on what one person can spend: an hour of new
+audio in any 24 hours, with cached transcripts still free. The build moves to
+Go 1.26.9, and the German and Ukrainian texts now read correctly.
+
+No pre-release of this version ran anywhere. Voicy has no test bot, because a
+second bot needs its own Deepgram budget (see `docs/versioning.md`), so a
+pre-release would have gone to the same production bot this release does. The
+allowance was checked by unit tests and by the database tests against
+PostgreSQL 17, migration `006` included.
+
 ### Added
 
 - **A daily allowance per person.** Deepgram bills every second it hears, and
