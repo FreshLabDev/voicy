@@ -13,6 +13,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+### Added
+
+- **A daily allowance per person.** Deepgram bills every second it hears, and
+  nothing stopped one person from forwarding podcasts all day: audio files are
+  transcribed in a direct chat without being asked, up to an hour each. Now one
+  person gets at most `USER_DAILY_AUDIO_LIMIT` of new audio in any 24 hours,
+  one hour by default. The window rolls instead of resetting at a midnight that
+  would fall at a different hour for everyone. A file that does not fit is
+  refused before it is downloaded, and the answer says how large the allowance
+  is and how long until this file would fit. A file already in the cache costs
+  nothing and is still served. `/vp` refusals stay private.
+- `voicy_daily_limit_refusals_total` counts the refusals.
+
 ### Security
 
 - Built with Go 1.26.9. Under Go 1.26.6 Voicy's code called into nine
@@ -25,6 +38,16 @@ Use this section for changes that are merged but not released yet.
 
 ### Changed
 
+- **New optional variable `USER_DAILY_AUDIO_LIMIT`** (default `1h`). `0` turns
+  the limit off; any other value must be at least `MAX_MEDIA_DURATION`, or the
+  service refuses to start, because a file longer than the allowance could
+  never be transcribed. Production does not set it today, so after this
+  release it runs with a one-hour allowance.
+- **Migration `006_daily_audio_limit.sql`** adds `jobs.audio_seconds`, the
+  seconds Deepgram billed for the job, and the job status `limited`. A refused
+  job is neither a failure nor a delivery, so `/healthz` `jobs_failed` and the
+  failure counters do not count it. Rows finished before the migration have no
+  `audio_seconds` and count as zero.
 - **A release waits for CI.** `release.yml` runs `ci.yml` on the tagged commit
   and publishes nothing unless it passed. The checks it used to repeat inline
   now come from CI itself, so the two cannot drift. When CI cannot run,

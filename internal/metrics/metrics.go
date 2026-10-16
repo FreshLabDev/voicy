@@ -92,6 +92,7 @@ var (
 	AudioSeconds    = registerCounter("voicy_audio_seconds_total", "Seconds of audio sent to Deepgram.")
 	RedeliverySkips = registerCounter("voicy_redelivery_skips_total", "Retries that skipped delivery because the transcript was already sent.")
 	StaleJobsReaped = registerCounter("voicy_stale_jobs_reaped_total", "Jobs failed by the reaper after being abandoned.")
+	DailyLimited    = registerCounter("voicy_daily_limit_refusals_total", "Transcriptions refused because they did not fit the person's daily audio allowance.")
 
 	JobFailures     = registerVec("voicy_job_failures_total", "Transcription jobs that failed, by stage.", "stage")
 	TelegramErrors  = registerVec("voicy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")

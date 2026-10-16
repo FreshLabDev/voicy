@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/tg"
 	"github.com/FreshLabDev/voicy/internal/db"
@@ -35,6 +36,10 @@ type fakeStore struct {
 	langs     map[int64]string
 	cleared   []int64
 	toggled   []string
+	// billed is what BilledAudioSince filters by time; billedCalls counts the
+	// lookups, so a test can tell the limit was never consulted.
+	billed      []db.BilledAudio
+	billedCalls int
 }
 
 func (f *fakeStore) cfg(userID int64) settings.Settings {
@@ -109,6 +114,18 @@ func (f *fakeStore) CompleteJob(_ context.Context, id int64, status, _ string, _
 		f.successes++
 	}
 	return nil
+}
+func (f *fakeStore) BilledAudioSince(_ context.Context, _ int64, since time.Time) ([]db.BilledAudio, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.billedCalls++
+	var out []db.BilledAudio
+	for _, b := range f.billed {
+		if !b.At.Before(since) {
+			out = append(out, b)
+		}
+	}
+	return out, nil
 }
 func (f *fakeStore) FailUpdate(context.Context, int64, string) error { return nil }
 func (f *fakeStore) UserSettings(_ context.Context, userID int64) (settings.Settings, error) {

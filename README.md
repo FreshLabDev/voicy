@@ -35,6 +35,7 @@ Voicy keeps the first alpha deliberately narrow:
 | Quiet groups | Transcribes only on `/v` or `/vp` as a reply |
 | Private ask | `/vp` is ephemeral and visible only to the requester |
 | Cheap repeats | Caches by Telegram `file_id`; audio stays on Telegram |
+| Bounded cost | One hour of new audio per person in any 24 hours |
 | Familiar stack | Go, first-party Bot API HTTP, shared Asterfield `core` |
 
 > **Result:** one small service that turns speech already in Telegram into
@@ -99,6 +100,10 @@ stays on Telegram; Voicy stores the `file_id` and the text. Long transcripts
 use Bot API rich messages of up to 32,768 characters each and split into
 multiple readable messages when needed. Voicy never sends transcript files.
 
+Each person can have up to one hour of new audio transcribed in any 24 hours.
+A file that does not fit is refused with the time until it would; a file
+already in the cache is served regardless.
+
 ---
 
 ## How It Works
@@ -160,6 +165,7 @@ getFile -> bounded download
 | `TRANSCRIPT_RETENTION` | no | `2160h` | Retain terminal jobs and cached transcripts since last use |
 | `MAX_MEDIA_BYTES` | no | `20971520` | Maximum Telegram media download size |
 | `MAX_MEDIA_DURATION` | no | `1h` | Maximum voice or video-circle duration |
+| `USER_DAILY_AUDIO_LIMIT` | no | `1h` | Audio one person may have transcribed in any 24 hours; `0` turns it off, otherwise at least `MAX_MEDIA_DURATION` |
 | `JOB_STALE_AFTER` | no | `30m` | Age at which an unfinished job is failed and reported as stuck |
 | `FFMPEG_PATH` | no | `ffmpeg` | Audio extraction binary; empty disables extraction |
 | `EXTRACT_ABOVE_BYTES` | no | `20971520` | Extract an audio track from non-video media above this size |
@@ -191,7 +197,8 @@ role. See [`docs/releases.md`](docs/releases.md).
 `/healthz` reports database status, Telegram initialization, polling freshness,
 stuck jobs, job counts, and build metadata without exposing secrets. `/metrics`
 serves process counters in Prometheus text format: polling failures, cache hits
-and misses, Deepgram retries, delivery errors, and job failures by stage.
+and misses, Deepgram retries, delivery errors, daily-limit refusals, and job
+failures by stage.
 
 ---
 

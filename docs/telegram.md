@@ -69,6 +69,25 @@ track by ffmpeg before Deepgram sees it. Deepgram recommends exactly that for
 large video, and it keeps a large upload from crossing the network twice. Both
 the download and the extracted track are deleted when the job ends.
 
+## Daily Allowance
+
+Deepgram bills every second it hears, so one person may have at most
+`USER_DAILY_AUDIO_LIMIT` of audio transcribed in any 24 hours (one hour by
+default, `0` turns it off). The window rolls: there is no midnight, which would
+fall at a different hour for every person. What counts is what Deepgram billed,
+empty results included. A cache hit costs nothing and is served whatever is
+left.
+
+The check runs after the cache lookup and before the download. A file that
+does not fit is refused with the size of the allowance and the wait until this
+file would fit, rounded up to the minute. For `/vp` that answer replaces the
+ephemeral placeholder and stays private. The allowance is never shorter than
+`MAX_MEDIA_DURATION`, so no accepted file is too long to ever fit.
+
+Telegram does not report a duration for every document. Such a file is let
+through while anything at all is left of the allowance, so it can overshoot it
+once; Deepgram's own duration is then recorded and the next file waits.
+
 ## Delivery
 
 Public and DM transcripts use Bot API `sendRichMessage` with a

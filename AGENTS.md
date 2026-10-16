@@ -27,6 +27,9 @@ Keep Voicy minimal, private by default, and production-minded.
 - Groups: only `/v` (public) or `/vp` (ephemeral, requester-only) as a reply
   to that media. Bare group voices stay quiet.
 - Cache key is Telegram `file_id`. Store id + transcript, never audio bytes.
+- One person gets at most `USER_DAILY_AUDIO_LIMIT` of Deepgram audio in any
+  24 hours. Cache hits are free and always served. A refusal is a `limited`
+  job, not a failure.
 - Empty and failed runs are logged and must not increment user-facing stats.
 
 ## Data And Security
@@ -82,6 +85,8 @@ validation, and `govulncheck`.
 - A DM voice or video circle returns a transcript.
 - Group `/v` on a reply is public. Group `/vp` is ephemeral then edited.
 - A repeated `file_id` is served from cache.
+- Past the daily allowance a new file is refused with the wait, before any
+  download; a cached file is still served.
 - Empty and failed jobs do not increment `user_stats`.
 - `/healthz` reports database and Telegram polling freshness.
 - `/metrics` renders without error and names every counter `voicy_*_total`.

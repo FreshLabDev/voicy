@@ -49,6 +49,7 @@ type Store interface {
 	SaveTranscript(ctx context.Context, fileID, uniqueID, kind, variant string, res deepgram.Result) error
 	CreateJob(ctx context.Context, updateID, messageID, userID, chatID int64, kind, fileID, variant, retrievalToken string) (db.Job, error)
 	CompleteJob(ctx context.Context, id int64, status, errCode string, cacheHit bool, res deepgram.Result) error
+	BilledAudioSince(ctx context.Context, userID int64, since time.Time) ([]db.BilledAudio, error)
 	MarkDelivered(ctx context.Context, id int64) error
 	FailUpdate(ctx context.Context, updateID int64, errCode string) error
 	UserSettings(ctx context.Context, userID int64) (settings.Settings, error)
@@ -101,6 +102,9 @@ type Bot struct {
 	extractor    *media.Extractor
 	tmpDir       string
 	extractAbove int64
+	// dailyAudio is how much audio one person may have sent to Deepgram in any
+	// 24 hours. Zero means no limit.
+	dailyAudio time.Duration
 	// version is the build the About card names, the same string /healthz
 	// reports, so a screenshot of the card identifies the running binary.
 	version string
@@ -164,6 +168,14 @@ func (b *Bot) SetMediaLimits(maxBytes int64, maxDuration time.Duration) {
 	}
 	if maxDuration > 0 {
 		b.maxSecs = int(maxDuration.Seconds())
+	}
+}
+
+// SetDailyAudioLimit holds each person to a rolling 24-hour allowance of audio
+// sent to Deepgram. Zero, the default, turns the limit off.
+func (b *Bot) SetDailyAudioLimit(limit time.Duration) {
+	if limit >= 0 {
+		b.dailyAudio = limit
 	}
 }
 
@@ -776,7 +788,7 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 	if err != nil {
 		return err
 	}
-	if job.Status == "sent" || job.Status == "empty" || job.Status == "failed" {
+	if job.Status == "sent" || job.Status == "empty" || job.Status == "failed" || job.Status == "limited" {
 		return nil
 	}
 	if job.Delivered {
@@ -810,6 +822,21 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 			return err
 		}
 		return b.completeJob(ctx, job.ID, "sent", "", true, res)
+	}
+
+	// The allowance is checked only now: a cache hit costs nothing and is served
+	// whatever is left of it, and a refusal here spends nothing on the download.
+	if b.dailyAudio > 0 {
+		now := time.Now()
+		usage, err := b.store.BilledAudioSince(ctx, act.UserID, now.Add(-dailyWindow))
+		if err != nil {
+			return err
+		}
+		if wait, ok := dailyAllowance(usage, b.dailyAudio, act.Media.Duration, now); !ok {
+			metrics.DailyLimited.Inc()
+			b.log.Info("daily audio limit reached", "update_id", act.UpdateID, "duration", act.Media.Duration, "wait", wait.Round(time.Minute))
+			return b.closeJob(ctx, job.ID, "limited", "daily_limit", act, prog, transcript.DailyLimitText(lang, b.dailyAudio, wait))
+		}
 	}
 
 	metrics.CacheMisses.Inc()
@@ -996,6 +1023,40 @@ func (b *Bot) mediaTooLarge(duration int, size int64) bool {
 	return (duration > 0 && duration > b.maxSecs) || (size > 0 && size > b.maxBytes)
 }
 
+// dailyWindow is the span the daily allowance is counted over. It rolls rather
+// than resetting at midnight, which would mean a different midnight for every
+// person depending on where they are.
+const dailyWindow = 24 * time.Hour
+
+// dailyAllowance reports whether seconds more audio fit the allowance on top of
+// usage, the billed audio of the last dailyWindow ordered oldest first. When
+// they do not, it also returns how long until enough of usage has aged out of
+// the window for them to fit.
+func dailyAllowance(usage []db.BilledAudio, limit time.Duration, seconds int, now time.Time) (time.Duration, bool) {
+	// Telegram does not report a duration for every document. Such a file is
+	// let through as long as anything at all is left of the allowance.
+	if seconds < 1 {
+		seconds = 1
+	}
+	over := float64(seconds) - limit.Seconds()
+	for _, u := range usage {
+		over += u.Seconds
+	}
+	if over <= 0 {
+		return 0, true
+	}
+	for _, u := range usage {
+		over -= u.Seconds
+		if over <= 0 {
+			return max(u.At.Add(dailyWindow).Sub(now), 0), false
+		}
+	}
+	// Even an empty window could not hold this file. Configuration keeps the
+	// allowance at least as long as the longest accepted file, so a running bot
+	// never gets here; if it does, a full window is the honest answer.
+	return dailyWindow, false
+}
+
 func (b *Bot) completeJob(ctx context.Context, id int64, status, errCode string, cacheHit bool, res deepgram.Result) error {
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -1012,7 +1073,12 @@ func (b *Bot) completeJob(ctx context.Context, id int64, status, errCode string,
 
 func (b *Bot) failJob(ctx context.Context, id int64, code string, act decide.Action, prog *progress, text string) error {
 	metrics.JobFailures.Inc(code)
-	if err := b.completeJob(ctx, id, "failed", code, false, deepgram.Result{}); err != nil {
+	return b.closeJob(ctx, id, "failed", code, act, prog, text)
+}
+
+// closeJob ends a job that produced no transcript and tells the person why.
+func (b *Bot) closeJob(ctx context.Context, id int64, status, code string, act decide.Action, prog *progress, text string) error {
+	if err := b.completeJob(ctx, id, status, code, false, deepgram.Result{}); err != nil {
 		return err
 	}
 	prog.stopPulse()

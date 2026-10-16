@@ -503,6 +503,24 @@
   "uk": "Мова",
   "zh": "语言"
  },
+ "msg.daily_limit": {
+  "ar": "هذا يتجاوز حدّك اليومي: يفرّغ Voicy حتى {limit} من الصوت لكل شخص خلال 24 ساعة. أرسل هذا الملف مرة أخرى بعد {wait}.",
+  "be": "Не хапае сутачнага ліміту: Voicy расшыфроўвае аднаму чалавеку да {limit} аўдыя за 24 гадзіны. Дашлі гэты файл зноў праз {wait}.",
+  "ca": "Això supera el teu límit diari: Voicy transcriu fins a {limit} d’àudio per persona en 24 hores. Torna a enviar aquest fitxer d’aquí a {wait}.",
+  "cs": "Tohle se už nevejde do denního limitu: Voicy přepíše jednomu člověku až {limit} zvuku za 24 hodin. Pošli tento soubor znovu za {wait}.",
+  "de": "Das passt nicht mehr in dein Tageslimit: Voicy transkribiert pro Person bis zu {limit} Audio in 24 Stunden. Schick die Datei in {wait} noch einmal.",
+  "en": "This would go over your daily limit: Voicy transcribes up to {limit} of audio per person in any 24 hours. Send this file again in {wait}.",
+  "es": "Esto supera tu límite diario: Voicy transcribe hasta {limit} de audio por persona en 24 horas. Vuelve a enviar este archivo dentro de {wait}.",
+  "fr": "Cela dépasse ta limite quotidienne : Voicy transcrit jusqu’à {limit} d’audio par personne sur 24 heures. Renvoie ce fichier dans {wait}.",
+  "it": "Così superi il limite giornaliero: Voicy trascrive fino a {limit} di audio per persona in 24 ore. Rimanda questo file tra {wait}.",
+  "ja": "1日の上限を超えます。Voicy が文字起こしできる音声は1人あたり24時間で{limit}までです。{wait}後にもう一度このファイルを送ってください。",
+  "pl": "To nie mieści się w dziennym limicie: Voicy transkrybuje jednej osobie do {limit} audio w ciągu 24 godzin. Wyślij ten plik ponownie za {wait}.",
+  "ru": "Не хватает суточного лимита: Voicy расшифровывает одному человеку до {limit} аудио за 24 часа. Пришли этот файл снова через {wait}.",
+  "sv": "Det ryms inte i din dagsgräns: Voicy transkriberar upp till {limit} ljud per person under 24 timmar. Skicka filen igen om {wait}.",
+  "tr": "Bu, günlük sınırını aşıyor: Voicy kişi başına 24 saatte en fazla {limit} ses deşifre eder. Bu dosyayı {wait} sonra yeniden gönder.",
+  "uk": "Не вистачає добового ліміту: Voicy розшифровує одній людині до {limit} аудіо за 24 години. Надішли цей файл знову через {wait}.",
+  "zh": "超出每日额度：Voicy 每人每 24 小时最多识别 {limit} 音频。请在 {wait} 后重新发送这个文件。"
+ },
  "msg.empty_speech": {
   "ar": "لم ألتقط أي كلام. جرّب بصوت أعلى قليلًا أو أقصر.",
   "be": "Не разабраў маўлення. Паспрабуй яшчэ раз крыху гучней ці карацей.",

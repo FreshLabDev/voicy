@@ -4,6 +4,7 @@ package transcript
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FreshLabDev/voicy/internal/deepgram"
 	"github.com/FreshLabDev/voicy/internal/settings"
@@ -139,5 +140,19 @@ func TestEveryScreenIsOnePanelShape(t *testing.T) {
 	}
 	if got := GroupHomeText("en"); !strings.Contains(got, "/vp") {
 		t.Errorf("group card must explain the group commands: %s", got)
+	}
+}
+
+func TestDailyLimitTextRoundsTheWaitUp(t *testing.T) {
+	got := DailyLimitText("ru", time.Hour, 3*time.Hour+19*time.Minute+5*time.Second)
+	if !strings.Contains(got, "до 1 ч аудио") || !strings.Contains(got, "через 3 ч 20 мин") {
+		t.Fatalf("ru = %s", got)
+	}
+	got = DailyLimitText("en", 90*time.Minute, 30*time.Second)
+	if !strings.Contains(got, "up to 1 h 30 min of audio") || !strings.Contains(got, "again in 1 min") {
+		t.Fatalf("en = %s", got)
+	}
+	if strings.Contains(got, "{") {
+		t.Fatalf("placeholder left unfilled: %s", got)
 	}
 }

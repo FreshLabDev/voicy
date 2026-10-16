@@ -249,13 +249,20 @@ func (s *Store) CompleteJob(ctx context.Context, id int64, status, errCode strin
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	// Deepgram reports the duration it billed, empty results included. A cache
+	// hit carries the duration of the original run, which was paid for once
+	// already, so it records nothing.
+	var billed any
+	if !cacheHit && res.Duration > 0 {
+		billed = res.Duration
+	}
 	var userID int64
 	var kind string
 	err = tx.QueryRow(ctx, `
-		UPDATE jobs SET status=$2, error_code=$3, cache_hit=$4, finished_at=now()
+		UPDATE jobs SET status=$2, error_code=$3, cache_hit=$4, audio_seconds=$5, finished_at=now()
 		WHERE id=$1 AND status='received'
 		RETURNING telegram_user_id, COALESCE(kind,'')`,
-		id, status, nullString(errCode), cacheHit).Scan(&userID, &kind)
+		id, status, nullString(errCode), cacheHit, billed).Scan(&userID, &kind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return tx.Commit(ctx)
 	}
@@ -282,6 +289,29 @@ func (s *Store) CompleteJob(ctx context.Context, id int64, status, errCode strin
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// BilledAudio is one job Deepgram was paid for.
+type BilledAudio struct {
+	At      time.Time
+	Seconds float64
+}
+
+// BilledAudioSince lists, oldest first, the audio Deepgram transcribed for one
+// person since the given moment. Cache hits cost nothing and are not in it.
+func (s *Store) BilledAudioSince(ctx context.Context, userID int64, since time.Time) ([]BilledAudio, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT created_at, audio_seconds FROM jobs
+		WHERE telegram_user_id=$1 AND created_at >= $2 AND audio_seconds > 0
+		ORDER BY created_at`, userID, since)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (BilledAudio, error) {
+		var b BilledAudio
+		err := row.Scan(&b.At, &b.Seconds)
+		return b, err
+	})
 }
 
 func (s *Store) FailUpdate(ctx context.Context, updateID int64, errCode string) error {
@@ -412,7 +442,7 @@ func (s *Store) Cleanup(ctx context.Context, retention time.Duration) (int64, er
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	jobs, err := tx.Exec(ctx, `DELETE FROM jobs WHERE status IN ('sent','empty','failed') AND finished_at < $1`, cutoff)
+	jobs, err := tx.Exec(ctx, `DELETE FROM jobs WHERE status IN ('sent','empty','failed','limited') AND finished_at < $1`, cutoff)
 	if err != nil {
 		return 0, err
 	}
