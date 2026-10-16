@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -394,5 +395,70 @@ func TestClearLanguageRestoresTheTelegramHint(t *testing.T) {
 	// whether or not there is anything to undo.
 	if err := s.ClearLanguage(ctx, 11); err != nil {
 		t.Fatalf("second clear: %v", err)
+	}
+}
+
+// The daily allowance counts what Deepgram was paid for: fresh runs, empty ones
+// included, but not cache hits, failures, other people or anything older than
+// the window.
+func TestBilledAudioSince(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	person(t, s, 10)
+	person(t, s, 11)
+
+	complete := func(update int64, user int64, status string, cacheHit bool, res deepgram.Result) int64 {
+		t.Helper()
+		job, err := s.CreateJob(ctx, update, 1, user, user, "voice", "BILLED", settings.DefaultVariant, "billed-"+strconv.FormatInt(update, 10))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteJob(ctx, job.ID, status, "", cacheHit, res); err != nil {
+			t.Fatal(err)
+		}
+		return job.ID
+	}
+	old := complete(920, 10, "sent", false, result("yesterday", 1, 600))
+	complete(921, 10, "sent", false, result("fresh", 1, 120))
+	complete(922, 10, "empty", false, result("", 0, 30))
+	complete(923, 10, "sent", true, result("from cache", 2, 900))
+	complete(924, 10, "failed", false, deepgram.Result{})
+	complete(925, 10, "limited", false, deepgram.Result{})
+	complete(926, 11, "sent", false, result("someone else", 2, 500))
+	if _, err := s.pool.Exec(ctx, `UPDATE jobs SET created_at = now() - interval '25 hours' WHERE id=$1`, old); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.BilledAudioSince(ctx, 10, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Seconds != 120 || got[1].Seconds != 30 {
+		t.Fatalf("billed = %+v, want the fresh 120 s and the empty 30 s, oldest first", got)
+	}
+	if got[0].At.After(got[1].At) {
+		t.Fatalf("not ordered oldest first: %+v", got)
+	}
+
+	// A refusal is neither a failure for /healthz nor a row that lives forever.
+	health, err := s.HealthStatus(ctx, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.Failed != 1 {
+		t.Fatalf("failed = %d, want only the real failure", health.Failed)
+	}
+	if _, err := s.pool.Exec(ctx, `UPDATE jobs SET finished_at = now() - interval '100 days' WHERE status='limited'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Cleanup(ctx, 90*24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	var limited int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE status='limited'`).Scan(&limited); err != nil {
+		t.Fatal(err)
+	}
+	if limited != 0 {
+		t.Fatal("Cleanup kept an expired limited job")
 	}
 }

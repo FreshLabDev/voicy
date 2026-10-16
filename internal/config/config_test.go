@@ -97,6 +97,51 @@ func TestConcurrencyAndStatsDefaults(t *testing.T) {
 	}
 }
 
+func TestUserDailyAudioLimit(t *testing.T) {
+	t.Setenv("TELEGRAM_BOT_TOKEN", "t")
+	t.Setenv("DEEPGRAM_API_KEY", "k")
+	t.Setenv("DATABASE_URL", "postgres://localhost/voicy")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UserDailyAudioLimit != time.Hour {
+		t.Fatalf("default UserDailyAudioLimit = %s, want 1h", cfg.UserDailyAudioLimit)
+	}
+
+	t.Setenv("USER_DAILY_AUDIO_LIMIT", "0")
+	if cfg, err = Load(); err != nil || cfg.UserDailyAudioLimit != 0 {
+		t.Fatalf("0 must turn the limit off: %s, %v", cfg.UserDailyAudioLimit, err)
+	}
+
+	t.Setenv("USER_DAILY_AUDIO_LIMIT", "3h")
+	if cfg, err = Load(); err != nil || cfg.UserDailyAudioLimit != 3*time.Hour {
+		t.Fatalf("3h: %s, %v", cfg.UserDailyAudioLimit, err)
+	}
+
+	for _, tc := range []struct{ limit, maxDuration string }{
+		{"-1h", "1h"},
+		{"lots", "1h"},
+		// Shorter than the longest file Voicy accepts: that file could never fit.
+		{"30m", "1h"},
+	} {
+		t.Run(tc.limit, func(t *testing.T) {
+			t.Setenv("USER_DAILY_AUDIO_LIMIT", tc.limit)
+			t.Setenv("MAX_MEDIA_DURATION", tc.maxDuration)
+			if _, err := Load(); err == nil {
+				t.Fatalf("USER_DAILY_AUDIO_LIMIT=%q with MAX_MEDIA_DURATION=%q must be rejected", tc.limit, tc.maxDuration)
+			}
+		})
+	}
+
+	t.Setenv("USER_DAILY_AUDIO_LIMIT", "30m")
+	t.Setenv("MAX_MEDIA_DURATION", "30m")
+	if _, err := Load(); err != nil {
+		t.Fatalf("a limit equal to MAX_MEDIA_DURATION is valid: %v", err)
+	}
+}
+
 // A self-hosted Bot API server runs with --local: it answers getFile with an
 // absolute path on its own disk and serves nothing over HTTP. Without a
 // mounted data directory every transcription would fail on download, so the

@@ -13,6 +13,72 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.0 - 2026-10-16
+
+Voicy goes public with a ceiling on what one person can spend: an hour of new
+audio in any 24 hours, with cached transcripts still free. The build moves to
+Go 1.26.9, and the German and Ukrainian texts now read correctly.
+
+No pre-release of this version ran anywhere. Voicy has no test bot, because a
+second bot needs its own Deepgram budget (see `docs/versioning.md`), so a
+pre-release would have gone to the same production bot this release does. The
+allowance was checked by unit tests and by the database tests against
+PostgreSQL 17, migration `006` included.
+
+### Added
+
+- **A daily allowance per person.** Deepgram bills every second it hears, and
+  nothing stopped one person from forwarding podcasts all day: audio files are
+  transcribed in a direct chat without being asked, up to an hour each. Now one
+  person gets at most `USER_DAILY_AUDIO_LIMIT` of new audio in any 24 hours,
+  one hour by default. The window rolls instead of resetting at a midnight that
+  would fall at a different hour for everyone. A file that does not fit is
+  refused before it is downloaded, and the answer says how large the allowance
+  is and how long until this file would fit. A file already in the cache costs
+  nothing and is still served. `/vp` refusals stay private.
+- `voicy_daily_limit_refusals_total` counts the refusals.
+
+### Fixed
+
+- German: the start screen and help said "ein Videokreis" where the accusative
+  "einen Videokreis" belongs, the first sentence every German reader sees.
+- Ukrainian: "Не розібрав мову" read as "did not understand the language"; the
+  empty-speech answer now says "мовлення", speech.
+
+### Security
+
+- Built with Go 1.26.9. Under Go 1.26.6 Voicy's code called into nine
+  standard-library vulnerabilities in `net/http`, `net/textproto` and
+  `crypto/tls` (GO-2026-6603, -6605, -6607, -6608, -6610, -6611, -6612, -6613,
+  -6617). `golang.org/x/text` moves from v0.39.0 to v0.43.0 for GO-2026-6629,
+  which pulls `golang.org/x/sync` to v0.24.0. Voicy publishes no port outside
+  its Docker network, so none of these were exposed to the internet, but CI's
+  `govulncheck` would have failed the next push.
+
+### Changed
+
+- **New optional variable `USER_DAILY_AUDIO_LIMIT`** (default `1h`). `0` turns
+  the limit off; any other value must be at least `MAX_MEDIA_DURATION`, or the
+  service refuses to start, because a file longer than the allowance could
+  never be transcribed. Production does not set it today, so after this
+  release it runs with a one-hour allowance.
+- **Migration `006_daily_audio_limit.sql`** adds `jobs.audio_seconds`, the
+  seconds Deepgram billed for the job, and the job status `limited`. A refused
+  job is neither a failure nor a delivery, so `/healthz` `jobs_failed` and the
+  failure counters do not count it. Rows finished before the migration have no
+  `audio_seconds` and count as zero.
+- **A release waits for CI.** `release.yml` runs `ci.yml` on the tagged commit
+  and publishes nothing unless it passed. The checks it used to repeat inline
+  now come from CI itself, so the two cannot drift. When CI cannot run,
+  `release.yml` can be started by hand with the tag and a reason; that run skips
+  CI and prints the reason at the top of the release notes. See
+  `docs/releases.md`.
+- The image carries `org.opencontainers.image.version` and `.revision` labels,
+  so `docker inspect` names the build without starting it.
+- CI also runs weekly, so a new advisory against a dependency or the standard
+  library is noticed while nothing is being pushed.
+- Dependabot opens grouped version updates against `dev`.
+
 ## v0.0.2 - 2026-09-10
 
 A language picked by hand can be handed back, and every screen is built the same

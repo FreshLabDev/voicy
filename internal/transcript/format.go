@@ -5,6 +5,7 @@ import (
 	"html"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/FreshLabDev/voicy/internal/deepgram"
@@ -293,6 +294,12 @@ func UnsupportedText(lang string) string   { return i18n.T(lang, "msg.unsupporte
 func SentPrivatelyText(lang string) string { return i18n.T(lang, "msg.sent_privately") }
 func NotYoursText(lang string) string      { return i18n.T(lang, "msg.not_yours") }
 
+// DailyLimitText tells a person their file does not fit the daily allowance,
+// how large the allowance is, and how long until this file would fit.
+func DailyLimitText(lang string, limit, wait time.Duration) string {
+	return i18n.T(lang, "msg.daily_limit", "limit", clockDuration(limit, lang), "wait", clockDuration(wait, lang))
+}
+
 func PrivateTranscriptLinkText(lang, username, token string) string {
 	username = strings.TrimPrefix(strings.TrimSpace(username), "@")
 	url := "https://t.me/" + username + "?start=transcript_" + token
@@ -347,6 +354,23 @@ func humanDuration(seconds float64, lang string) string {
 		return strconv.FormatInt(minutes, 10) + " " + i18n.T(lang, "unit.min")
 	}
 	return ftoa(float64(minutes)/60) + " " + i18n.T(lang, "unit.hour")
+}
+
+// clockDuration renders hours and minutes, rounded up to the minute: a wait
+// promised as shorter than it is would send the person back too early.
+func clockDuration(d time.Duration, lang string) string {
+	minutes := int64((d + time.Minute - 1) / time.Minute)
+	if minutes < 1 {
+		minutes = 1
+	}
+	hours, minutes := minutes/60, minutes%60
+	switch {
+	case hours == 0:
+		return itoa(minutes) + " " + i18n.T(lang, "unit.min")
+	case minutes == 0:
+		return itoa(hours) + " " + i18n.T(lang, "unit.hour")
+	}
+	return itoa(hours) + " " + i18n.T(lang, "unit.hour") + " " + itoa(minutes) + " " + i18n.T(lang, "unit.min")
 }
 
 func number(value int64, separator string) string {

@@ -39,8 +39,10 @@ surface. PostgreSQL is its only durable store.
 3. `core.touch` records identity and presence before domain writes.
 4. A job row is created idempotently for the Telegram `update_id`.
 5. A `(file_id, variant)` cache hit skips Telegram download and Deepgram.
-6. On a miss, Voicy enforces duration and size limits, downloads bounded bytes,
-   and calls Deepgram `POST /v1/listen`.
+6. On a miss, Voicy checks the person's daily allowance
+   (`USER_DAILY_AUDIO_LIMIT`), enforces duration and size limits, downloads
+   bounded bytes, and calls Deepgram `POST /v1/listen`. The job records the
+   seconds Deepgram billed in `audio_seconds`.
 7. The transcript and optional speaker turns are cached.
 8. Delivery uses `sendRichMessage` with an HTML `rich_message`. Each complete
    part is at most 32,768 characters and preserves replies and topics.
@@ -50,7 +52,8 @@ surface. PostgreSQL is its only durable store.
     and closes the job instead of sending the transcript again.
 
 Empty and failed jobs are retained for operations but never increment user
-statistics. Terminal jobs and transcripts unused past `TRANSCRIPT_RETENTION`
+statistics. A job refused by the daily allowance ends as `limited`: it is not a
+failure, so `/healthz` and failure counters do not see it. Terminal jobs and transcripts unused past `TRANSCRIPT_RETENTION`
 are deleted by the hourly cleanup loop.
 
 ## Reliability

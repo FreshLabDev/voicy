@@ -25,6 +25,9 @@ type Config struct {
 	TranscriptRetention time.Duration
 	MaxMediaBytes       int64
 	MaxMediaDuration    time.Duration
+	// UserDailyAudioLimit is how much audio one person may have sent to
+	// Deepgram in any 24 hours. Zero turns the limit off.
+	UserDailyAudioLimit time.Duration
 	JobStaleAfter       time.Duration
 	MaxConcurrentJobs   int
 	StatsTimezone       string
@@ -64,6 +67,14 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxMediaDuration, err = time.ParseDuration(valueOrDefault("MAX_MEDIA_DURATION", "1h")); err != nil || cfg.MaxMediaDuration <= 0 {
 		return Config{}, fmt.Errorf("MAX_MEDIA_DURATION must be a positive duration")
+	}
+	if cfg.UserDailyAudioLimit, err = time.ParseDuration(valueOrDefault("USER_DAILY_AUDIO_LIMIT", "1h")); err != nil || cfg.UserDailyAudioLimit < 0 {
+		return Config{}, fmt.Errorf("USER_DAILY_AUDIO_LIMIT must be a duration, or 0 to turn the limit off")
+	}
+	// A file longer than the daily allowance could never be transcribed, and the
+	// person would be told to come back tomorrow for something tomorrow cannot fix.
+	if cfg.UserDailyAudioLimit > 0 && cfg.UserDailyAudioLimit < cfg.MaxMediaDuration {
+		return Config{}, fmt.Errorf("USER_DAILY_AUDIO_LIMIT must be 0 or at least MAX_MEDIA_DURATION (%s)", cfg.MaxMediaDuration)
 	}
 	if cfg.JobStaleAfter, err = time.ParseDuration(valueOrDefault("JOB_STALE_AFTER", "30m")); err != nil || cfg.JobStaleAfter <= 0 {
 		return Config{}, fmt.Errorf("JOB_STALE_AFTER must be a positive duration")
