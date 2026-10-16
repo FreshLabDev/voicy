@@ -13,6 +13,16 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+### Security
+
+- Built with Go 1.26.9. Under Go 1.26.6 Voicy's code called into nine
+  standard-library vulnerabilities in `net/http`, `net/textproto` and
+  `crypto/tls` (GO-2026-6603, -6605, -6607, -6608, -6610, -6611, -6612, -6613,
+  -6617). `golang.org/x/text` moves from v0.39.0 to v0.43.0 for GO-2026-6629,
+  which pulls `golang.org/x/sync` to v0.24.0. Voicy publishes no port outside
+  its Docker network, so none of these were exposed to the internet, but CI's
+  `govulncheck` would have failed the next push.
+
 ### Changed
 
 - **A release waits for CI.** `release.yml` runs `ci.yml` on the tagged commit
