@@ -26,6 +26,13 @@ Use this section for changes that are merged but not released yet.
   nothing and is still served. `/vp` refusals stay private.
 - `voicy_daily_limit_refusals_total` counts the refusals.
 
+### Fixed
+
+- German: the start screen and help said "ein Videokreis" where the accusative
+  "einen Videokreis" belongs, the first sentence every German reader sees.
+- Ukrainian: "Не розібрав мову" read as "did not understand the language"; the
+  empty-speech answer now says "мовлення", speech.
+
 ### Security
 
 - Built with Go 1.26.9. Under Go 1.26.6 Voicy's code called into nine

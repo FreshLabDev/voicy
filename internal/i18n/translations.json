@@ -292,7 +292,7 @@
   "be": "• У прыватным чаце: дашлі галасавое, кружочак ці аўдыяфайл.\n• Большыя файлы і відэа: адкажы на іх камандай <code>/v</code>.\n• У групе: рэплай <code>/v</code> — усім, <code>/vp</code> — толькі табе.\n• Паўтор таго ж файла аддаецца з кэшу.",
   "ca": "• En privat: envia una nota de veu, un vídeo rodó o un fitxer d’àudio.\n• Fitxers més grans i vídeos: respon-hi amb <code>/v</code>.\n• En un grup: respon <code>/v</code> per a tothom, <code>/vp</code> només per a tu.\n• El mateix fitxer se serveix des de la memòria cau.",
   "cs": "• V soukromém chatu: pošli hlasovku, video kolečko nebo zvukový soubor.\n• Větší soubory a videa: odpověz na ně příkazem <code>/v</code>.\n• Ve skupině: odpověz <code>/v</code> všem, <code>/vp</code> jen tobě.\n• Stejný soubor se vydá z cache.",
-  "de": "• Im Direktchat: schick eine Sprachnachricht, ein Videokreis oder eine Audiodatei.\n• Größere Dateien und Videos: antworte darauf mit <code>/v</code>.\n• In einer Gruppe: antworte <code>/v</code> für alle, <code>/vp</code> nur für dich.\n• Dieselbe Datei kommt aus dem Cache.",
+  "de": "• Im Direktchat: schick eine Sprachnachricht, einen Videokreis oder eine Audiodatei.\n• Größere Dateien und Videos: antworte darauf mit <code>/v</code>.\n• In einer Gruppe: antworte <code>/v</code> für alle, <code>/vp</code> nur für dich.\n• Dieselbe Datei kommt aus dem Cache.",
   "en": "• In a direct chat: send a voice message, a video circle, or an audio file.\n• Larger files and videos: reply to them with <code>/v</code>.\n• In a group: reply <code>/v</code> for everyone, <code>/vp</code> for you only.\n• The same file is served from cache.",
   "es": "• En privado: envía una nota de voz, un vídeo circular o un archivo de audio.\n• Archivos grandes y vídeos: respóndeles con <code>/v</code>.\n• En un grupo: responde <code>/v</code> para todos, <code>/vp</code> solo para ti.\n• El mismo archivo se sirve desde la caché.",
   "fr": "• En privé : envoie un vocal, une vidéo ronde ou un fichier audio.\n• Fichiers plus lourds et vidéos : réponds-y avec <code>/v</code>.\n• Dans un groupe : réponds <code>/v</code> pour tous, <code>/vp</code> pour toi seul.\n• Le même fichier est servi depuis le cache.",
@@ -346,7 +346,7 @@
   "be": "Дашлі галасавое, кружочак ці аўдыяфайл — вярну тэкстам.\nУ групе адкажы <code>/v</code> (усім) або <code>/vp</code> (толькі табе).",
   "ca": "Envia una nota de veu, un vídeo rodó o un fitxer d’àudio: et retorno el text.\nEn un grup, respon amb <code>/v</code> (per a tothom) o <code>/vp</code> (només per a tu).",
   "cs": "Pošli hlasovku, video kolečko nebo zvukový soubor — vrátím text.\nVe skupině odpověz <code>/v</code> (všem) nebo <code>/vp</code> (jen tobě).",
-  "de": "Schick eine Sprachnachricht, ein Videokreis oder eine Audiodatei — ich schicke den Text zurück.\nIn einer Gruppe antworte mit <code>/v</code> (für alle) oder <code>/vp</code> (nur für dich).",
+  "de": "Schick eine Sprachnachricht, einen Videokreis oder eine Audiodatei — ich schicke den Text zurück.\nIn einer Gruppe antworte mit <code>/v</code> (für alle) oder <code>/vp</code> (nur für dich).",
   "en": "Send a voice message, a video circle, or an audio file — I’ll send the text back.\nIn a group, reply with <code>/v</code> (everyone) or <code>/vp</code> (just you).",
   "es": "Envía una nota de voz, un vídeo circular o un archivo de audio: te devuelvo el texto.\nEn un grupo, responde con <code>/v</code> (para todos) o <code>/vp</code> (solo para ti).",
   "fr": "Envoie un message vocal, une vidéo ronde ou un fichier audio : je renvoie le texte.\nDans un groupe, réponds avec <code>/v</code> (pour tous) ou <code>/vp</code> (pour toi seul).",
@@ -536,7 +536,7 @@
   "ru": "Не разобрал речь. Попробуй ещё раз чуть громче или короче.",
   "sv": "Jag hörde inget tal. Försök lite högre eller kortare.",
   "tr": "Konuşma yakalayamadım. Biraz daha yüksek sesle ya da kısa dene.",
-  "uk": "Не розібрав мову. Спробуй ще раз трохи гучніше або коротше.",
+  "uk": "Не розібрав мовлення. Спробуй ще раз трохи гучніше або коротше.",
   "zh": "没有识别到语音。可以试着大声一点或短一点。"
  },
  "msg.error": {
