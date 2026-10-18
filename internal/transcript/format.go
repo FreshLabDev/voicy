@@ -218,6 +218,27 @@ func SettingsText(lang string) string {
 	return Panel(i18n.T(lang, "settings.title"), "", i18n.T(lang, "settings.hint"), Quote(i18n.T(lang, "settings.body")))
 }
 
+// RecognitionText sits over the list of languages. The quote tells the person
+// what Auto does, why this list exists at all, and the one cost of naming a
+// language.
+func RecognitionText(lang string) string {
+	return Panel(i18n.T(lang, "setting.stt_language"), "", i18n.T(lang, "settings.hint"), Quote(i18n.T(lang, "stt.body")))
+}
+
+// RecognitionAuto labels the choice that leaves the language to the profile.
+func RecognitionAuto(lang string) string { return i18n.T(lang, "stt.auto") }
+
+// RecognitionButton is the Settings row that opens the language list. It names
+// the current choice, in the language's own name, because a row that opens a list
+// has no glyph to say where it stands.
+func RecognitionButton(lang, current string) string {
+	value := RecognitionAuto(lang)
+	if code := deepgram.HintFor(current); code != "" {
+		value = deepgram.NameOf(code)
+	}
+	return i18n.T(lang, "setting.stt_language") + ": " + value
+}
+
 // Facts the About card states. They are the same in every language, so they are
 // not translation keys: only the labels in front of them are.
 const (

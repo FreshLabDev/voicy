@@ -16,6 +16,12 @@ type Settings struct {
 	Diarize     bool
 	Quote       bool
 	Meta        bool
+
+	// STTLanguage is the language the person asked Deepgram to listen for, one of
+	// deepgram.HintLanguages. Empty is "Auto": the language is taken from their
+	// profile. It is not a toggle, so it has no Spec; the stored value is only an
+	// input to the language a request names, and the variant carries that.
+	STTLanguage string
 }
 
 // Spec describes one toggle. STT marks options that change the Deepgram
@@ -124,9 +130,10 @@ func (s Settings) Normalized() Settings {
 	return s
 }
 
-// Variant identifies the Deepgram option set of a Settings. Only STT-affecting
-// options take part: delivery options reuse the same transcript. It is computed
-// from Normalized so a variant never claims an option the request did not use.
+// Variant identifies the Deepgram option set of a Settings that detects the
+// spoken language. Only STT-affecting options take part: delivery options reuse
+// the same transcript. It is computed from Normalized so a variant never claims
+// an option the request did not use.
 func (s Settings) Variant() string {
 	s = s.Normalized()
 	var b strings.Builder
@@ -143,4 +150,22 @@ func (s Settings) Variant() string {
 	write("-pf", s.Profanity)
 	write("-d", s.Diarize)
 	return b.String()
+}
+
+// VariantFor is the cache variant of a request that names the spoken language.
+// The language is part of the variant because it changes the transcript: the
+// same Arabic voice message read as Arabic and read as detected French are two
+// different texts, and a person who asks for one must never be served the other.
+// An empty language is automatic detection and is exactly Variant(), which keeps
+// every row cached before languages could be named valid.
+//
+// The variant names the request that was planned, not the language Deepgram
+// ended up using: when a named run is repeated with detection (see
+// deepgram.Client.Transcribe) the better transcript is cached under the planned
+// variant, because asking again with the same plan gets the same answer.
+func (s Settings) VariantFor(language string) string {
+	if language == "" {
+		return s.Variant()
+	}
+	return s.Variant() + "-l" + language
 }

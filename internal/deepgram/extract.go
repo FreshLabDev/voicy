@@ -12,9 +12,13 @@ type Result struct {
 	Confidence float64
 	Language   string
 	Duration   float64
-	RequestID  string
-	WordCount  int
-	Turns      []Turn
+	// Billed is the audio Deepgram billed to produce this transcript, summed over
+	// every request: twice Duration when the language was named and the file had
+	// to be run again. Zero means one request, billed as Duration.
+	Billed    float64
+	RequestID string
+	WordCount int
+	Turns     []Turn
 }
 
 // Turn is one continuous speaker segment from a diarized transcript.

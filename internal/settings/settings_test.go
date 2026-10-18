@@ -121,3 +121,69 @@ func TestVariantReflectsDiarizeImpliesParagraphs(t *testing.T) {
 		t.Fatalf("default variant = %q, want %q", got, want)
 	}
 }
+
+// The language a request names is part of the transcript, so it is part of the
+// variant; but naming no language must stay exactly the variant every row cached
+// before languages could be named was written under.
+func TestVariantForKeepsDetectionOnTheDefaultVariant(t *testing.T) {
+	if got := Default().VariantFor(""); got != DefaultVariant {
+		t.Fatalf("VariantFor(\"\") = %q, want the unchanged %q", got, DefaultVariant)
+	}
+	for _, s := range []Settings{
+		Default(),
+		{SmartFormat: true, Diarize: true},
+		{FillerWords: true, Profanity: true},
+		{},
+	} {
+		if got, want := s.VariantFor(""), s.Variant(); got != want {
+			t.Errorf("VariantFor(\"\") = %q, Variant() = %q", got, want)
+		}
+	}
+}
+
+func TestVariantForSeparatesLanguages(t *testing.T) {
+	s := Default()
+	got := map[string]string{}
+	for _, lang := range []string{"", "ar", "fa", "be", "he"} {
+		v := s.VariantFor(lang)
+		if prev, dup := got[v]; dup {
+			t.Fatalf("%q and %q share the variant %q", prev, lang, v)
+		}
+		got[v] = lang
+	}
+	if v := s.VariantFor("ar"); v != DefaultVariant+"-lar" {
+		t.Fatalf("variant = %q", v)
+	}
+	// A language never collides with an option set: the option part is fixed
+	// width and ends before the language starts.
+	if strings.Contains(DefaultVariant, "-l") {
+		t.Fatalf("the default variant %q already contains a language marker", DefaultVariant)
+	}
+}
+
+func TestVariantForUsesTheNormalizedOptions(t *testing.T) {
+	s := Settings{SmartFormat: true, Diarize: true}
+	if got, want := s.VariantFor("ar"), "sf1-p1-fw0-pf0-d1-lar"; got != want {
+		t.Fatalf("variant = %q, want %q", got, want)
+	}
+}
+
+// The language a person picked is an input to the request, not a request option
+// of its own: it must not change the variant of a request that does not name it.
+func TestStoredLanguageDoesNotChangeVariant(t *testing.T) {
+	s := Default()
+	s.STTLanguage = "ar"
+	if got := s.Variant(); got != DefaultVariant {
+		t.Fatalf("Variant() = %q; only VariantFor carries the language that was sent", got)
+	}
+}
+
+func TestMigrationAddsTheRecognitionLanguageColumn(t *testing.T) {
+	raw, err := os.ReadFile("../../migrations/007_stt_language.sql")
+	if err != nil {
+		t.Skip("migration file not readable from test")
+	}
+	if !strings.Contains(string(raw), "stt_language TEXT NOT NULL DEFAULT ''") {
+		t.Fatal("the column must default to Auto so existing people keep detection")
+	}
+}

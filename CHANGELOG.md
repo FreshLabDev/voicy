@@ -13,6 +13,54 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+### Added
+
+- **Voice messages in Arabic, Persian, Belarusian and 23 more languages.**
+  Deepgram's automatic language detection knows 35 languages, and Arabic,
+  Persian and Belarusian are not among them: an Arabic voice message came back
+  labelled French and written in Latin letters, Hebrew as Polish, Kazakh as
+  Turkish. nova-3 transcribes all of them, but only when the request names the
+  language. Voicy now names it for people whose language is one of those, taking
+  it from their pick in Settings, then from the language the shared core
+  resolved for them, then from the language of their Telegram client. Everyone
+  else is detected as before. The full list is `deepgram.HintLanguages`.
+- **A file in another language than expected is not lost.** If the named run
+  comes back empty or under 85% confidence (an Arabic speaker forwarding an
+  English voice message), Voicy runs the same file again with detection and
+  keeps the better transcript. That second run is billed, so it counts toward
+  `USER_DAILY_AUDIO_LIMIT` and `voicy_audio_seconds_total`; the new
+  `voicy_language_fallbacks_total` counts how often it happens.
+- **Settings → Recognition language.** Auto, or one of the languages above, for
+  people whose Telegram client and interface language differ from the language
+  they speak. Migration `007` adds `user_settings.stt_language`, empty by
+  default. Texts in all sixteen interface languages.
+
+### Changed
+
+- The transcript cache variant now ends in `-l<code>` when a request names a
+  language (`sf1-p1-fw0-pf0-d0-lar`), so the same file read as Arabic and read as
+  detected French are two rows. `settings.DefaultVariant` and every row cached
+  before are unchanged. Files already cached for an Arabic or Persian speaker
+  are transcribed once more under the new variant, which is the point.
+- `voicy_audio_seconds_total` is counted where the Deepgram request is made
+  rather than before it, so a repeated run is in it.
+- **Migration `007_stt_language.sql`** adds `user_settings.stt_language` and is
+  applied on start; nothing to run by hand. v0.1.0 never reads the column, so
+  rolling back to it needs only the previous image.
+
+### Known Limitations
+
+- The 85% bar was set on synthetic speech (macOS text-to-speech, plain, with
+  pink noise and in an 8 kHz telephone band), because no recorded voice messages
+  were available. Language detected correctly scored 0.86 to 1.0; audio in the
+  wrong language came back empty; the detector's wrong guesses scored 0.0 to
+  0.77. Re-check it against `voicy_language_fallbacks_total` once real Arabic
+  and Persian traffic arrives.
+- Uzbek, Khmer and Burmese are not nova-3 languages and are not covered.
+- In a group, the language named is the requester's, not the author's of the
+  voice message; the repeat with detection covers a mismatch at the price of a
+  second run.
+
 ## v0.1.0 - 2026-10-16
 
 Voicy goes public with a ceiling on what one person can spend: an hour of new

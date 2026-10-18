@@ -28,6 +28,27 @@ surface. PostgreSQL is its only durable store.
 - Speech recognition is Deepgram prerecorded Listen only. There is no streaming
   transport or draft-message path.
 
+## Recognition Language
+
+Deepgram's `detect_language` knows 35 languages. nova-3 transcribes about 26
+more (Arabic, Persian, Hebrew, Belarusian, Kazakh, Bengali, Croatian, …) but only
+when the request says `language=<code>`; detection answers with a wrong guess
+and a transliterated transcript. `deepgram.HintLanguages` is that set.
+
+The language a request names comes from, in order: the person's pick in
+Settings (`user_settings.stt_language`, empty is Auto), the language the core hub
+resolved for them, and the `language_code` of the update. The first source with
+an opinion decides. A language outside `HintLanguages` sends `detect_language`
+as before, and its cache variant is the unchanged `settings.DefaultVariant`.
+
+A guess about the speaker is not a fact about the audio, so
+`deepgram.Client.Transcribe` repeats a named run with detection when it comes
+back empty or under `MinHintConfidence`, and keeps the better transcript. Both
+runs are billed: `Result.Billed` carries the sum into `jobs.audio_seconds` and
+so into the daily allowance, `voicy_audio_seconds_total` counts both, and
+`voicy_language_fallbacks_total` counts the repeats. The result is cached under
+the variant that was planned, not the language that won.
+
 ## Data Flow
 
 1. Long polling returns a batch of updates.
@@ -38,11 +59,15 @@ surface. PostgreSQL is its only durable store.
 3. `internal/decide` classifies each update without I/O.
 3. `core.touch` records identity and presence before domain writes.
 4. A job row is created idempotently for the Telegram `update_id`.
-5. A `(file_id, variant)` cache hit skips Telegram download and Deepgram.
+5. A `(file_id, variant)` cache hit skips Telegram download and Deepgram. The
+   variant is the STT option set plus the language the request will name (see
+   Recognition language below), so one file can hold a detected transcript and
+   a transcript made with a named language without either answering for the
+   other.
 6. On a miss, Voicy checks the person's daily allowance
    (`USER_DAILY_AUDIO_LIMIT`), enforces duration and size limits, downloads
    bounded bytes, and calls Deepgram `POST /v1/listen`. The job records the
-   seconds Deepgram billed in `audio_seconds`.
+   seconds Deepgram billed in `audio_seconds`, every run of the file included.
 7. The transcript and optional speaker turns are cached.
 8. Delivery uses `sendRichMessage` with an HTML `rich_message`. Each complete
    part is at most 32,768 characters and preserves replies and topics.

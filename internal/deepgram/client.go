@@ -66,8 +66,14 @@ type Options struct {
 	ProfanityFilter bool
 	Diarize         bool
 
-	// AudioSeconds sizes the request deadline. It is a client-side hint only:
-	// restQuery never sends it, so it can never change a cache variant.
+	// Language names the spoken language, one of HintLanguages. Empty asks
+	// Deepgram to detect it. It is part of the cache variant, so the bot derives
+	// the variant from the same value it puts here.
+	Language string
+
+	// AudioSeconds sizes the request deadline and the audio-seconds counter. It
+	// is a client-side hint only: restQuery never sends it, so it can never
+	// change a cache variant.
 	AudioSeconds int
 }
 
@@ -75,6 +81,9 @@ type Options struct {
 // and therefore the settings.DefaultVariant cache rows.
 var DefaultOptions = Options{SmartFormat: true, Paragraphs: true}
 
+// restQuery sends language=<code> when the language is named and
+// detect_language=true otherwise. Deepgram lets detect_language override
+// language, so the two are never sent together.
 func restQuery(o Options) string {
 	q := url.Values{}
 	q.Set("model", "nova-3")
@@ -89,7 +98,11 @@ func restQuery(o Options) string {
 	if o.Diarize {
 		q.Set("diarize_model", "latest")
 	}
-	q.Set("detect_language", "true")
+	if o.Language != "" {
+		q.Set("language", o.Language)
+	} else {
+		q.Set("detect_language", "true")
+	}
 	q.Set("mip_opt_out", "true")
 	return q.Encode()
 }
@@ -264,8 +277,86 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
+// MinHintConfidence is how sure Deepgram has to be of a transcript made with a
+// named language before Transcribe believes it.
+//
+// Calibrated on 2026-10-18 against nova-3 with synthetic speech, because no
+// recorded voice messages were at hand. Audio that was in the named language
+// came back at 0.86 to 1.0 (Arabic, Hebrew, Kazakh, Bengali, Croatian; clean,
+// pink noise and 8 kHz telephone band alike). Audio in another language came
+// back empty at 0.0, English and Russian read as Arabic alike. The detector's
+// wrong guesses on those languages scored 0.0 to 0.77. The threshold sits under
+// every correct run and over every wrong guess, and it errs high: a needless
+// second request costs seconds of audio, a believed wrong transcript costs the
+// person the message.
+const MinHintConfidence = 0.85
+
+// Transcribe turns audio into text. With opts.Language set it asks for that
+// language first and, when the answer is empty or not confident enough, runs the
+// same file again with automatic detection and keeps the better transcript.
+// That covers a person whose language Deepgram cannot detect forwarding a
+// message in a language it can: the named run hears nothing, the detecting run
+// hears English.
+//
+// Every request counts toward the audio-seconds metric, and Result.Billed is the
+// total Deepgram billed, so the daily allowance sees the second run too.
 func (c *Client) Transcribe(ctx context.Context, path string, contentType string, opts Options) (Result, error) {
-	return c.ListenFile(ctx, path, contentType, opts)
+	metrics.AudioSeconds.Add(int64(opts.AudioSeconds))
+	first, err := c.ListenFile(ctx, path, contentType, opts)
+	if err != nil {
+		return Result{}, err
+	}
+	first.Billed = first.Duration
+	if opts.Language == "" {
+		return first, nil
+	}
+	// Deepgram does not report a language it was told; the person reads this in
+	// the metadata line and the statistics card.
+	first.Language = opts.Language
+	if !distrusted(first) {
+		return first, nil
+	}
+
+	metrics.LanguageFallbacks.Inc()
+	metrics.AudioSeconds.Add(int64(opts.AudioSeconds))
+	detect := opts
+	detect.Language = ""
+	second, err := c.ListenFile(ctx, path, contentType, detect)
+	if err != nil {
+		// What the named run heard is better than failing a job whose audio was
+		// already paid for, but only when it heard something.
+		if ctx.Err() == nil && strings.TrimSpace(first.Text) != "" {
+			return first, nil
+		}
+		return Result{}, err
+	}
+	out := pickTranscript(first, second)
+	out.Billed = first.Duration + second.Duration
+	return out, nil
+}
+
+// distrusted reports whether a transcript made with a named language should be
+// checked against automatic detection.
+func distrusted(r Result) bool {
+	return strings.TrimSpace(r.Text) == "" || r.Confidence < MinHintConfidence
+}
+
+// pickTranscript chooses between the run that named the language and the run
+// that detected it. When the named run produced text, detection replaces it only
+// if detection is itself confident and more so: on a language it does not know
+// the detector guesses wrong and writes the speech out in Latin letters, and
+// that must not win against a hesitant transcript in the right script. When the
+// named run heard nothing there is nothing to protect, so the person gets what
+// detection heard, which is what they were given before the language was named.
+func pickTranscript(named, detected Result) Result {
+	if strings.TrimSpace(detected.Text) == "" {
+		return named
+	}
+	if strings.TrimSpace(named.Text) != "" &&
+		(detected.Confidence < MinHintConfidence || detected.Confidence <= named.Confidence) {
+		return named
+	}
+	return detected
 }
 
 func redact(key string, err error) error {

@@ -141,9 +141,9 @@ func (s *Store) SaveTranscript(ctx context.Context, fileID, uniqueID, kind, vari
 func (s *Store) UserSettings(ctx context.Context, userID int64) (settings.Settings, error) {
 	out := settings.Default()
 	err := s.pool.QueryRow(ctx, `
-			SELECT smart_format, paragraphs, filler_words, profanity_filter, diarize, quote, meta
+			SELECT smart_format, paragraphs, filler_words, profanity_filter, diarize, quote, meta, stt_language
 			FROM user_settings WHERE telegram_user_id=$1`, userID).
-		Scan(&out.SmartFormat, &out.Paragraphs, &out.FillerWords, &out.Profanity, &out.Diarize, &out.Quote, &out.Meta)
+		Scan(&out.SmartFormat, &out.Paragraphs, &out.FillerWords, &out.Profanity, &out.Diarize, &out.Quote, &out.Meta, &out.STTLanguage)
 	if err == pgx.ErrNoRows {
 		return settings.Default(), nil
 	}
@@ -164,10 +164,27 @@ func (s *Store) SetSetting(ctx context.Context, userID int64, key string, value 
 	err := s.pool.QueryRow(ctx, fmt.Sprintf(`
 			INSERT INTO user_settings (telegram_user_id, %s) VALUES ($1, $2)
 			ON CONFLICT (telegram_user_id) DO UPDATE SET %s = EXCLUDED.%s, updated_at = now()
-			RETURNING smart_format, paragraphs, filler_words, profanity_filter, diarize, quote, meta`,
+			RETURNING smart_format, paragraphs, filler_words, profanity_filter, diarize, quote, meta, stt_language`,
 		spec.Key, spec.Key, spec.Key),
 		userID, value).
-		Scan(&out.SmartFormat, &out.Paragraphs, &out.FillerWords, &out.Profanity, &out.Diarize, &out.Quote, &out.Meta)
+		Scan(&out.SmartFormat, &out.Paragraphs, &out.FillerWords, &out.Profanity, &out.Diarize, &out.Quote, &out.Meta, &out.STTLanguage)
+	if err != nil {
+		return settings.Default(), err
+	}
+	return out, nil
+}
+
+// SetSTTLanguage records the language the person wants Deepgram to listen for;
+// empty goes back to Auto. The caller has already checked the code against
+// deepgram.HintLanguages, which is what keeps junk out of the column.
+func (s *Store) SetSTTLanguage(ctx context.Context, userID int64, language string) (settings.Settings, error) {
+	var out settings.Settings
+	err := s.pool.QueryRow(ctx, `
+			INSERT INTO user_settings (telegram_user_id, stt_language) VALUES ($1, $2)
+			ON CONFLICT (telegram_user_id) DO UPDATE SET stt_language = EXCLUDED.stt_language, updated_at = now()
+			RETURNING smart_format, paragraphs, filler_words, profanity_filter, diarize, quote, meta, stt_language`,
+		userID, language).
+		Scan(&out.SmartFormat, &out.Paragraphs, &out.FillerWords, &out.Profanity, &out.Diarize, &out.Quote, &out.Meta, &out.STTLanguage)
 	if err != nil {
 		return settings.Default(), err
 	}
@@ -249,12 +266,9 @@ func (s *Store) CompleteJob(ctx context.Context, id int64, status, errCode strin
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	// Deepgram reports the duration it billed, empty results included. A cache
-	// hit carries the duration of the original run, which was paid for once
-	// already, so it records nothing.
 	var billed any
-	if !cacheHit && res.Duration > 0 {
-		billed = res.Duration
+	if seconds := billedSeconds(cacheHit, res); seconds > 0 {
+		billed = seconds
 	}
 	var userID int64
 	var kind string
@@ -289,6 +303,22 @@ func (s *Store) CompleteJob(ctx context.Context, id int64, status, errCode strin
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// billedSeconds is the audio Deepgram billed to produce a job's result, which is
+// what the daily allowance adds up. Deepgram reports the duration it billed,
+// empty results included. A file sent twice (a named language that had to be
+// repeated with detection) is billed twice and says so in Result.Billed. A cache
+// hit carries the duration of the original run, which was paid for once already,
+// so it records nothing.
+func billedSeconds(cacheHit bool, res deepgram.Result) float64 {
+	if cacheHit {
+		return 0
+	}
+	if res.Billed > 0 {
+		return res.Billed
+	}
+	return res.Duration
 }
 
 // BilledAudio is one job Deepgram was paid for.

@@ -89,10 +89,13 @@ var (
 	CacheMisses     = registerCounter("voicy_cache_misses_total", "Transcriptions that had to call Deepgram.")
 	EmptyResults    = registerCounter("voicy_empty_results_total", "Deepgram runs that returned no speech.")
 	DeepgramRetries = registerCounter("voicy_deepgram_retries_total", "Deepgram requests retried after a transient failure.")
-	AudioSeconds    = registerCounter("voicy_audio_seconds_total", "Seconds of audio sent to Deepgram.")
-	RedeliverySkips = registerCounter("voicy_redelivery_skips_total", "Retries that skipped delivery because the transcript was already sent.")
-	StaleJobsReaped = registerCounter("voicy_stale_jobs_reaped_total", "Jobs failed by the reaper after being abandoned.")
-	DailyLimited    = registerCounter("voicy_daily_limit_refusals_total", "Transcriptions refused because they did not fit the person's daily audio allowance.")
+	AudioSeconds    = registerCounter("voicy_audio_seconds_total", "Seconds of audio sent to Deepgram, a second run of the same file included.")
+	// LanguageFallbacks counts files whose named-language run came back empty or
+	// unsure and were sent again with automatic detection.
+	LanguageFallbacks = registerCounter("voicy_language_fallbacks_total", "Transcriptions re-run with automatic language detection after a named language failed.")
+	RedeliverySkips   = registerCounter("voicy_redelivery_skips_total", "Retries that skipped delivery because the transcript was already sent.")
+	StaleJobsReaped   = registerCounter("voicy_stale_jobs_reaped_total", "Jobs failed by the reaper after being abandoned.")
+	DailyLimited      = registerCounter("voicy_daily_limit_refusals_total", "Transcriptions refused because they did not fit the person's daily audio allowance.")
 
 	JobFailures     = registerVec("voicy_job_failures_total", "Transcription jobs that failed, by stage.", "stage")
 	TelegramErrors  = registerVec("voicy_telegram_errors_total", "Telegram API and transport errors, by method.", "method")
