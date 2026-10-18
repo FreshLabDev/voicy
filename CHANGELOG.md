@@ -13,6 +13,18 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.1-alpha.1 - 2026-10-18
+
+Voice messages in Arabic, Persian, Belarusian and 23 more languages stop coming
+back as a wrong guess in Latin letters: Voicy names the language for the people
+who speak it, and listens again with detection when that guess was wrong.
+
+This alpha runs on the production bot. Voicy has no test bot (see
+`docs/versioning.md`), so real Arabic and Persian traffic is the only way to
+check the confidence bar below. It either earns a stable tag or is rolled back.
+Checked by unit tests and by the database tests against PostgreSQL 17,
+migration `007` included.
+
 ### Added
 
 - **Voice messages in Arabic, Persian, Belarusian and 23 more languages.**
