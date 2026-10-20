@@ -11,3 +11,6 @@
 .vscode/
 *.log
 coverage.out
+
+# Promo cards and posts made for a release; kept outside git
+/outputs/
