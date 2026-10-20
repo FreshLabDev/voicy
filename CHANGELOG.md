@@ -13,6 +13,19 @@ See [`docs/versioning.md`](docs/versioning.md) for what the numbers mean and
 
 Use this section for changes that are merged but not released yet.
 
+## v0.1.1 - 2026-10-20
+
+Voice messages in Arabic, Persian, Belarusian and 23 more languages that
+Deepgram cannot detect are transcribed in the speaker's language instead of a
+wrong guess in Latin letters.
+
+This is `v0.1.1-alpha.1` promoted unchanged. It has run on the production bot
+since 18 October without an error, but in those two days it handled a single
+voice message, in Russian: the named-language path and its 85% confidence bar
+have not yet met real Arabic or Persian traffic. It is promoted on the unit
+tests and the database tests against PostgreSQL 17. If that path misbehaves,
+the fix ships as a patch.
+
 ## v0.1.1-alpha.1 - 2026-10-18
 
 Voice messages in Arabic, Persian, Belarusian and 23 more languages stop coming
