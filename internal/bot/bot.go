@@ -54,6 +54,7 @@ type Store interface {
 	FailUpdate(ctx context.Context, updateID int64, errCode string) error
 	UserSettings(ctx context.Context, userID int64) (settings.Settings, error)
 	SetSetting(ctx context.Context, userID int64, key string, value bool) (settings.Settings, error)
+	SetSTTLanguage(ctx context.Context, userID int64, language string) (settings.Settings, error)
 	SetLanguage(ctx context.Context, userID int64, lang string) error
 	ClearLanguage(ctx context.Context, userID int64) error
 	EffectiveLanguage(ctx context.Context, userID int64) (string, bool, error)
@@ -542,6 +543,39 @@ func (b *Bot) resolveLang(ctx context.Context, act decide.Action) string {
 	return transcript.LangOf(eff)
 }
 
+// speechLanguage is the language to name in the Deepgram request, or "" to let
+// Deepgram detect it. Detection does not know Arabic, Persian, Belarusian and
+// about two dozen other languages nova-3 does transcribe (see
+// deepgram.HintLanguages), so for a person who speaks one of them the answer
+// comes from, in order: the language they picked in Settings, the language the
+// shared core hub resolved for them, and the language_code Telegram sent with
+// this update. The first source with an opinion decides, even when its language
+// needs no hint: a person who picked Russian in the bot and has an Arabic
+// Telegram client reads Russian, and naming Arabic for every message they send
+// would run each of them twice.
+//
+// It is the raw code from core, not resolveLang's: that one folds every
+// language the interface cannot render into English, which would erase "fa".
+//
+// A guess about the speaker is not a fact about the audio, which may be in any
+// language, in a group by somebody else. Deepgram's Transcribe repeats a named
+// run with detection when it comes back empty or unsure.
+func (b *Bot) speechLanguage(ctx context.Context, act decide.Action, s settings.Settings) string {
+	if code := deepgram.HintFor(s.STTLanguage); code != "" {
+		return code
+	}
+	if act.UserID != 0 {
+		eff, ok, err := b.store.EffectiveLanguage(ctx, act.UserID)
+		switch {
+		case err != nil:
+			b.log.Warn("effective language failed", "user_id", act.UserID, "error", err)
+		case ok && eff != "":
+			return deepgram.HintFor(eff)
+		}
+	}
+	return deepgram.HintFor(act.LanguageCode)
+}
+
 func (b *Bot) handleLanguage(ctx context.Context, act decide.Action, lang string) error {
 	if code := normalizeLangChoice(act.Arg); code != "" {
 		if err := b.store.SetLanguage(ctx, act.UserID, code); err != nil {
@@ -699,8 +733,31 @@ func (b *Bot) handleCallback(ctx context.Context, act decide.Action, lang string
 		}
 		text, markup := settingsPanel(lang, owner, s, sc)
 		return b.editPanel(ctx, act, text, markup)
+	case "stt":
+		s, err := b.store.UserSettings(ctx, owner)
+		if err != nil {
+			return err
+		}
+		text, markup := recognitionPanel(lang, owner, s, sc)
+		return b.editPanel(ctx, act, text, markup)
 	case "close":
 		return b.deletePanel(ctx, act)
+	}
+	if code, ok := strings.CutPrefix(action, "stt:"); ok {
+		// "auto" is the way back to deciding from the profile, and it is stored as
+		// the empty string. Anything else must be a language Deepgram's detection
+		// lacks, so the column cannot hold what a request must not name.
+		if code == "auto" {
+			code = ""
+		} else if code = deepgram.HintFor(code); code == "" {
+			return nil
+		}
+		s, err := b.store.SetSTTLanguage(ctx, owner, code)
+		if err != nil {
+			return err
+		}
+		text, markup := recognitionPanel(lang, owner, s, sc)
+		return b.editPanel(ctx, act, text, markup)
 	}
 	if code, ok := strings.CutPrefix(action, "lang:"); ok {
 		code = normalizeLangChoice(code)
@@ -779,7 +836,10 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 		return err
 	}
 	s := raw.Normalized()
-	variant := s.Variant()
+	// The language is part of what the transcript is, so it is part of the cache
+	// key and has to be settled before anything looks the file up.
+	speech := b.speechLanguage(ctx, act, s)
+	variant := s.VariantFor(speech)
 	token, err := retrievalToken()
 	if err != nil {
 		return err
@@ -875,10 +935,11 @@ func (b *Bot) transcribe(ctx context.Context, act decide.Action, lang string) er
 		FillerWords:     s.FillerWords,
 		ProfanityFilter: s.Profanity,
 		Diarize:         s.Diarize,
-		// A client-side deadline hint only; it never reaches the Deepgram query.
+		Language:        speech,
+		// A client-side deadline hint and metrics weight only; it never reaches
+		// the Deepgram query.
 		AudioSeconds: act.Media.Duration,
 	}
-	metrics.AudioSeconds.Add(int64(act.Media.Duration))
 	res, err := b.stt.Transcribe(ctx, audioPath, ctype, opts)
 	if err != nil {
 		b.log.Error("deepgram failed", "file_id", act.Media.FileID, "update_id", act.UpdateID, "kind", act.Media.Kind, "duration", act.Media.Duration, "error", err)

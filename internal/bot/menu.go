@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/FreshLabDev/tg"
+	"github.com/FreshLabDev/voicy/internal/deepgram"
 	"github.com/FreshLabDev/voicy/internal/i18n"
 	"github.com/FreshLabDev/voicy/internal/settings"
 	"github.com/FreshLabDev/voicy/internal/stats"
@@ -173,8 +174,51 @@ func settingsPanel(lang string, owner int64, s settings.Settings, sc scope) (str
 		}
 		rows = append(rows, row)
 	}
+	// Not a switch: it opens a list, so it sits apart from the grid and shows the
+	// current choice instead of a glyph.
+	rows = append(rows, []tg.InlineKeyboardButton{{
+		Text:         transcript.RecognitionButton(lang, s.STTLanguage),
+		CallbackData: cb(owner, "stt"),
+	}})
 	kb := &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
 	return transcript.SettingsText(lang), withNav(kb, lang, owner, sc)
+}
+
+// recognitionPanel lists the languages Deepgram's automatic detection cannot
+// recognise, two per row, under an Auto button that stands for "decide from my
+// profile". Like the interface-language grid it styles the current choice and
+// nothing else. Back returns to Settings, where the person came from.
+func recognitionPanel(lang string, owner int64, s settings.Settings, sc scope) (string, *tg.InlineKeyboardMarkup) {
+	current := deepgram.HintFor(s.STTLanguage)
+	auto := tg.InlineKeyboardButton{
+		Text:         toggleMark(current == "") + transcript.RecognitionAuto(lang),
+		CallbackData: cb(owner, "stt:auto"),
+	}
+	if current == "" {
+		auto.Style = tg.StyleSuccess
+	}
+	rows := [][]tg.InlineKeyboardButton{{auto}}
+	opts := deepgram.HintLanguages
+	for i := 0; i < len(opts); i += 2 {
+		row := []tg.InlineKeyboardButton{recognitionButton(opts[i], current, owner)}
+		if i+1 < len(opts) {
+			row = append(row, recognitionButton(opts[i+1], current, owner))
+		}
+		rows = append(rows, row)
+	}
+	rows = append(rows, navRowTo(lang, owner, sc, "set"))
+	return transcript.RecognitionText(lang), &tg.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func recognitionButton(opt deepgram.HintLanguage, current string, owner int64) tg.InlineKeyboardButton {
+	btn := tg.InlineKeyboardButton{
+		Text:         toggleMark(opt.Code == current) + opt.Name,
+		CallbackData: cb(owner, "stt:"+opt.Code),
+	}
+	if opt.Code == current {
+		btn.Style = tg.StyleSuccess
+	}
+	return btn
 }
 
 func toggleMark(on bool) string {
@@ -190,7 +234,12 @@ func toggleMark(on bool) string {
 // chat the conversation is the panel: closing it deletes the message the person
 // is looking at and leaves them staring at their own history.
 func navRow(lang string, owner int64, sc scope) []tg.InlineKeyboardButton {
-	row := []tg.InlineKeyboardButton{{Text: transcript.BtnBack(lang), CallbackData: cb(owner, "home")}}
+	return navRowTo(lang, owner, sc, "home")
+}
+
+// navRowTo is navRow for a screen whose Back goes somewhere other than home.
+func navRowTo(lang string, owner int64, sc scope, back string) []tg.InlineKeyboardButton {
+	row := []tg.InlineKeyboardButton{{Text: transcript.BtnBack(lang), CallbackData: cb(owner, back)}}
 	if sc == scopeGroup {
 		row = append(row, tg.InlineKeyboardButton{Text: transcript.BtnClose(lang), CallbackData: cb(owner, "close"), Style: tg.StyleDanger})
 	}

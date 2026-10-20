@@ -462,3 +462,139 @@ func TestBilledAudioSince(t *testing.T) {
 		t.Fatal("Cleanup kept an expired limited job")
 	}
 }
+
+// A file Deepgram heard twice (a named language repeated with detection) is
+// billed twice, and the allowance must see both runs while statistics see the
+// file once.
+func TestCompleteJobBillsEveryRunButCountsTheFileOnce(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	person(t, s, 12)
+
+	job, err := s.CreateJob(ctx, 930, 1, 12, 12, "voice", "TWICE", settings.DefaultVariant+"-lar", "tok-twice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := result("hello", 1, 40)
+	res.Billed = 80
+	if err := s.CompleteJob(ctx, job.ID, "sent", "", false, res); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.BilledAudioSince(ctx, 12, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Seconds != 80 {
+		t.Fatalf("billed = %+v, want one job of 80 s", got)
+	}
+	snap, err := s.UserStats(ctx, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.DurationSec != 40 || snap.Transcriptions != 1 {
+		t.Fatalf("stats = %+v, want the file counted once at its own length", snap)
+	}
+}
+
+// The same file can hold a detected transcript and one made with a named
+// language; neither may overwrite or answer for the other, and a retrieval link
+// has to return the one its job was made with.
+func TestCacheKeepsLanguagesApart(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	person(t, s, 13)
+
+	detected := result("Marhaban kaifa halek", 3, 9)
+	detected.Language = "fr"
+	named := result("مرحبا كيف حالك", 3, 9)
+	named.Language = "ar"
+	arVariant := settings.Default().VariantFor("ar")
+	if err := s.SaveTranscript(ctx, "ARFILE", "U", "voice", settings.DefaultVariant, detected); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveTranscript(ctx, "ARFILE", "U", "voice", arVariant, named); err != nil {
+		t.Fatal(err)
+	}
+	for variant, want := range map[string]string{
+		settings.DefaultVariant: "Marhaban kaifa halek",
+		arVariant:               "مرحبا كيف حالك",
+	} {
+		got, ok, err := s.GetCached(ctx, "ARFILE", variant)
+		if err != nil || !ok || got.Transcript != want {
+			t.Fatalf("%s: got %q ok=%v err=%v, want %q", variant, got.Transcript, ok, err, want)
+		}
+	}
+	if _, ok, _ := s.GetCached(ctx, "ARFILE", settings.Default().VariantFor("fa")); ok {
+		t.Fatal("a language nobody asked for must be a miss")
+	}
+
+	job, err := s.CreateJob(ctx, 931, 1, 13, 13, "voice", "ARFILE", arVariant, "tok-ar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteJob(ctx, job.ID, "sent", "", true, named); err != nil {
+		t.Fatal(err)
+	}
+	back, ok, err := s.TranscriptByToken(ctx, 13, "tok-ar")
+	if err != nil || !ok || back.Transcript != "مرحبا كيف حالك" {
+		t.Fatalf("retrieved %q ok=%v err=%v", back.Transcript, ok, err)
+	}
+}
+
+func TestSetSTTLanguage(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	person(t, s, 14)
+
+	// A person with no row yet reads Auto.
+	got, err := s.UserSettings(ctx, 14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.STTLanguage != "" {
+		t.Fatalf("a new person reads %q, want Auto", got.STTLanguage)
+	}
+
+	// Creating the row by picking a language leaves every switch at its default.
+	got, err = s.SetSTTLanguage(ctx, 14, "fa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := settings.Default()
+	want.STTLanguage = "fa"
+	if got != want {
+		t.Fatalf("set = %+v, want %+v", got, want)
+	}
+
+	// A toggle keeps the language, and the language keeps the toggles.
+	if _, err := s.SetSetting(ctx, 14, "diarize", true); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.SetSTTLanguage(ctx, 14, "ar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.STTLanguage != "ar" || !got.Diarize {
+		t.Fatalf("settings = %+v", got)
+	}
+	got, err = s.SetSetting(ctx, 14, "meta", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.STTLanguage != "ar" || !got.Diarize || !got.Meta {
+		t.Fatalf("a toggle lost the language: %+v", got)
+	}
+
+	// Auto is the empty string, stored and read back as such.
+	got, err = s.SetSTTLanguage(ctx, 14, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.STTLanguage != "" || !got.Diarize {
+		t.Fatalf("settings = %+v", got)
+	}
+	read, err := s.UserSettings(ctx, 14)
+	if err != nil || read != got {
+		t.Fatalf("read %+v err=%v, want %+v", read, err, got)
+	}
+}

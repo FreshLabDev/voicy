@@ -36,6 +36,8 @@ type fakeStore struct {
 	langs     map[int64]string
 	cleared   []int64
 	toggled   []string
+	// completed is what each job was closed with, in order.
+	completed []deepgram.Result
 	// billed is what BilledAudioSince filters by time; billedCalls counts the
 	// lookups, so a test can tell the limit was never consulted.
 	billed      []db.BilledAudio
@@ -110,6 +112,7 @@ func (f *fakeStore) CompleteJob(_ context.Context, id int64, status, _ string, _
 		f.jobs = map[int64]string{}
 	}
 	f.jobs[id] = status
+	f.completed = append(f.completed, res)
 	if status == "sent" && strings.TrimSpace(res.Text) != "" {
 		f.successes++
 	}
@@ -150,6 +153,17 @@ func (f *fakeStore) SetSetting(_ context.Context, userID int64, key string, valu
 	f.userCfg[userID] = next
 	f.toggled = append(f.toggled, key)
 	return next, nil
+}
+func (f *fakeStore) SetSTTLanguage(_ context.Context, userID int64, language string) (settings.Settings, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := f.cfg(userID)
+	s.STTLanguage = language
+	if f.userCfg == nil {
+		f.userCfg = map[int64]settings.Settings{}
+	}
+	f.userCfg[userID] = s
+	return s, nil
 }
 func (f *fakeStore) SetLanguage(_ context.Context, userID int64, lang string) error {
 	f.mu.Lock()
@@ -662,6 +676,7 @@ func everyPanel(lang string, owner int64, sc scope) map[string]*tg.InlineKeyboar
 	_, out["about"] = aboutPanel(lang, owner, "v1", sc)
 	_, out["language"] = languagePanel(lang, owner, sc)
 	_, out["settings"] = settingsPanel(lang, owner, settings.Default(), sc)
+	_, out["recognition"] = recognitionPanel(lang, owner, settings.Default(), sc)
 	return out
 }
 
@@ -843,6 +858,8 @@ func TestCallbackDataBudget(t *testing.T) {
 	_, kb = languagePanel("ru", owner, scopePrivate)
 	markups = append(markups, kb)
 	_, kb = settingsPanel("ru", owner, settings.Default(), scopeGroup)
+	markups = append(markups, kb)
+	_, kb = recognitionPanel("ru", owner, settings.Settings{STTLanguage: "ar"}, scopeGroup)
 	markups = append(markups, kb)
 	for _, m := range markups {
 		for _, row := range m.InlineKeyboard {
