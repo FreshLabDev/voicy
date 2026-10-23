@@ -5,8 +5,8 @@ module github.com/FreshLabDev/voicy
 go 1.26.9
 
 require (
-	github.com/FreshLabDev/tg v0.0.1-alpha.7
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/FreshLabDev/tg v0.1.0
+	github.com/jackc/pgx/v5 v5.11.0
 )
 
 require (
